@@ -31,6 +31,7 @@ Python · Linux · SQLite · Telegram Bot API
 | 🟢 **Приход / уход** | Записывает серверное время одной кнопкой, не дублирует события |
 | 📅 **Смены** | Учитывает ночные смены, перерывы и исправления |
 | 💰 **Зарплата** | Считает две части месяца, хранит историю ставок и поступлений |
+| 🗓 **Календарь** | Показывает все дни месяца и открывает подробности по нажатию |
 | 🗓 **План** | Показывает план отдельно от отработанных часов |
 | 🏢 **Сверка** | Сопоставляет часы с подтверждёнными офисными данными |
 | 📂 **Отчёты** | Создаёт красивые Excel-книги, сводки и историю изменений |
@@ -86,7 +87,7 @@ python bot.py
 ### Тестирование
 
 ~~~bash
-python -m unittest test_core.py test_pro.py test_interactions.py test_callbacks.py test_backup.py test_security.py -v
+python -m unittest test_core.py test_pro.py test_interactions.py test_callbacks.py test_backup.py test_security.py test_calendar.py -v
 python -m compileall -q .
 python scripts/check_public.py
 ~~~

@@ -68,6 +68,14 @@ class InlineRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(q.answered,1)
         self.assertIn("Июль 2024",q.edits[0][0])
         self.assertIn("08.07",q.edits[0][0])
+    async def test_calendar_navigation_and_day(self):
+        core.corrected_shift(self.db,"2024-07-12","09:00","18:00",30)
+        u,c,q=self.mk(action="cal:2024-07")
+        await bot.inline_action(u,c)
+        self.assertIn("Календарь",q.edits[0][0])
+        u,c,q=self.mk(action="day:2024-07-12")
+        await bot.inline_action(u,c)
+        self.assertIn("09:00",q.edits[0][0])
     def test_polling_subscribes_to_buttons(self):
         source=inspect.getsource(bot.main)
         self.assertIn('"callback_query"',source)

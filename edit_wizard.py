@@ -22,7 +22,7 @@ def date_from_text(value):
             return parsed.date().isoformat()
         except ValueError:
             pass
-    raise ValueError("Напиши дату как 16.11 или 2024-08-16")
+    raise ValueError("Напиши дату как 16.11 или 2024-07-16")
 
 def parse_clock(value):
     x=value.strip().replace(".",":")
@@ -100,6 +100,17 @@ async def callback(update,context,db):
              "step":"end","date":local_day(s["start_utc"]),
              "start":read_time(s["start_utc"]).strftime("%H:%M"),
              "shift_id":s["id"],"break_minutes":s["break_minutes"],"close_open":True}
+    elif action[1]=="day" and len(action)>2:
+        try:
+            target=date_from_text(action[2])
+            if target>datetime.now(TZ).date().isoformat():
+                raise ValueError("Будущие смены не добавляются")
+        except ValueError:
+            await reply(update,context,"Некорректная дата. Открой календарь заново.",cancel_markup())
+            return True
+        context.user_data["correction"]={
+            "step":"start","date":target,"shift_id":None,
+            "break_minutes":default_break(db)}
     elif action[1]=="fix" and len(action)>2:
         try:shift_id=int(action[2])
         except ValueError:return True

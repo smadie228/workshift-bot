@@ -18,6 +18,7 @@ import edit_wizard
 import finance_wizard
 import pro_assistant
 import office_upload
+import calendar_views
 
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -66,6 +67,10 @@ async def screen(update,context,name="home",month=None,page=0):
         return await denied(update,context)
     if name=="historymonth":
         text,buttons=friendly_ui.history_month(db,month,page)
+    elif name=="calendar":
+        text,buttons=calendar_views.month_view(db,month)
+    elif name=="day":
+        text,buttons=calendar_views.day_view(db,month)
     else:
         view=friendly_ui.VIEWS.get(name)
         if not view:
@@ -122,6 +127,17 @@ async def inline_action(update,context):
         return await query.answer("Доступ закрыт",show_alert=True)
     await query.answer()
     action=query.data or ""
+    if action=="noop":return
+    if action.startswith("cal:"):
+        try:calendar_views.month_parse(action[4:])
+        except ValueError:return
+        return await screen(update,context,"calendar",action[4:])
+    if action.startswith("day:"):
+        try:
+            date=datetime.strptime(action[4:],"%Y-%m-%d")
+            if len(action[4:])!=10 or not 2000<=date.year<=2100:return
+        except ValueError:return
+        return await screen(update,context,"day",action[4:])
     if action.startswith("ui:"):
         context.user_data.pop("correction",None)
         context.user_data.pop("finance_flow",None)
@@ -475,7 +491,7 @@ def main():
         ("break",break_time),("settings",settings),("rate",changed_setting),
         ("defaultbreak",changed_setting)]
     for name,handler in commands:app.add_handler(CommandHandler(name,handler))
-    app.add_handler(CallbackQueryHandler(inline_action,pattern=r"^(ui:|month:|hist:|file:|edit:|fin:|helper:|office:)"))
+    app.add_handler(CallbackQueryHandler(inline_action,pattern=r"^(noop$|ui:|month:|hist:|cal:|day:|file:|edit:|fin:|helper:|office:)"))
     app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE,received_photo))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE,received_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,on_text))

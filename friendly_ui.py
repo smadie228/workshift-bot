@@ -48,8 +48,9 @@ def home(db):
           "Для прихода и ухода используй большую кнопку внизу.")
     return text,kb([
       [("💰 Зарплата","ui:pay"),("📅 История","ui:shifts")],
-      [("🕒 Неделя","ui:week"),("🗓 План смен","ui:plan")],
-      [("📂 Отчёты","ui:reports"),("🏢 Сверка","ui:office")],
+      [("🕒 Неделя","ui:week"),("🗓 Календарь","cal:"+cur)],
+      [("🗓 План","ui:plan"),("📂 Отчёты","ui:reports")],
+      [("🏢 Сверка","ui:office")],
       [("🧭 Помощник","ui:assistant"),("⚙️ Настройки","ui:settings")]])
 
 def pay(db,month=None):
@@ -79,7 +80,8 @@ def history(db):
     text+="\n".join(shift_line(s) for s in rows) if rows else "Пока нет закрытых смен."
     text+="\n\n<i>Полная история — в книге Excel.</i>"
     return text,kb([
-      [("📆 История по месяцам","hist:"+datetime.now(TZ).strftime("%Y-%m")+":0")],
+      [("🗓 Календарь","cal:"+datetime.now(TZ).strftime("%Y-%m")),
+       ("📆 По месяцам","hist:"+datetime.now(TZ).strftime("%Y-%m")+":0")],
       [("📥 Все смены в Excel","file:main")],
       [("✏️ Исправления","ui:edit"),("🏠 Главная","ui:home")]])
 
