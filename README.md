@@ -86,7 +86,7 @@ python bot.py
 ### Тестирование
 
 ~~~bash
-python -m unittest test_core.py test_pro.py test_interactions.py -v
+python -m unittest test_core.py test_pro.py test_interactions.py test_callbacks.py test_backup.py test_security.py -v
 python -m compileall -q .
 python scripts/check_public.py
 ~~~

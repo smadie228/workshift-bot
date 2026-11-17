@@ -42,11 +42,17 @@ def make_sheet(book,name,title,note,headings,widths):
     ws.print_title_rows="1:6"
     return ws
 
+def safe_spreadsheet_text(value):
+    """Prevent user-supplied strings from being interpreted as spreadsheet formulas."""
+    if isinstance(value,str) and value.lstrip().startswith(("=","+","-","@")):
+        return "'" + value
+    return value
+
 def addrow(ws,row,values,tone=None):
     n=len(values);row=min(max(7,row),10000)
     color=tone or (WHITE if row%2 else CLOUD)
     for j,val in enumerate(values,1):
-        c=ws.cell(row,j,val)
+        c=ws.cell(row,j,safe_spreadsheet_text(val))
         c.font=Font(name="Calibri",size=10,color=INK)
         c.fill=PatternFill("solid",fgColor=color)
         c.border=BORDER
@@ -84,7 +90,7 @@ def sources(db):
         "Каждая исходная строка сохранена отдельно; несколько версий одной смены не складываются.",
         ["Категория","Количество","Пояснение"],[34,17,72])
     stats=[
-      ("Строк Excel",db.execute("SELECT count(*) FROM history_source_rows").fetchone()[0],"История из импортированных документов"),
+      ("Строк Excel",db.execute("SELECT count(*) FROM history_source_rows").fetchone()[0],"История из трёх версий файлов"),
       ("Исторических смен",db.execute("SELECT count(*) FROM shifts WHERE origin='import_excel'").fetchone()[0],"Только записи со статусом «Работал»"),
       ("Свидетельств переписки",db.execute("SELECT count(*) FROM historical_evidence").fetchone()[0],"Не входят в начисления повторно"),
       ("Дат офисного фото",db.execute("SELECT count(*) FROM office_image_days").fetchone()[0],"Часы требуют проверки по оригиналу")]

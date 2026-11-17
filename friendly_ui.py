@@ -1,7 +1,7 @@
 """Compact, read-only Telegram screens with inline navigation.
 UI does not modify shift times, salaries or office data.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from core import TZ, rate, totals, shifts, paid_hours, read_time, local_day, open_shift, week_totals
@@ -48,8 +48,8 @@ def home(db):
           "Для прихода и ухода используй большую кнопку внизу.")
     return text,kb([
       [("💰 Зарплата","ui:pay"),("📅 История","ui:shifts")],
-      [("🗓 План смен","ui:plan"),("📂 Отчёты","ui:reports")],
-      [("🏢 Сверка с офисом","ui:office")],
+      [("🕒 Неделя","ui:week"),("🗓 План смен","ui:plan")],
+      [("📂 Отчёты","ui:reports"),("🏢 Сверка","ui:office")],
       [("🧭 Помощник","ui:assistant"),("⚙️ Настройки","ui:settings")]])
 
 def pay(db,month=None):
@@ -79,6 +79,7 @@ def history(db):
     text+="\n".join(shift_line(s) for s in rows) if rows else "Пока нет закрытых смен."
     text+="\n\n<i>Полная история — в книге Excel.</i>"
     return text,kb([
+      [("📆 История по месяцам","hist:"+datetime.now(TZ).strftime("%Y-%m")+":0")],
       [("📥 Все смены в Excel","file:main")],
       [("✏️ Исправления","ui:edit"),("🏠 Главная","ui:home")]])
 
@@ -175,7 +176,7 @@ def system_status(db):
     backups=DATA_DIR/"backups"
     recent=max(backups.glob("*.sqlite3"),key=lambda p:p.stat().st_mtime,default=None) if backups.exists() else None
     stamp=datetime.fromtimestamp(recent.stat().st_mtime,TZ).strftime("%d.%m %H:%M") if recent else "не найдена"
-    disk=shutil.disk_usage(DATA_DIR)
+    disk=shutil.disk_usage(DATA_DIR if DATA_DIR.exists() else Path(__file__).resolve().parent)
     free=round(disk.free/disk.total*100)
     return ("🩺 <b>Состояние данных</b>\n\n"
        f"Смен: {stats['shifts']}\n"
@@ -204,6 +205,60 @@ def edit(db):
             "Выбери, что нужно сделать. Бот сам спросит дату, время и перерыв.\n\n"
             "<i>Данные изменятся только после нажатия «Сохранить».</i>"),kb(choices)
 
+
+
+
+def _adjacent_month(month, delta):
+    year,number=map(int,month.split("-"))
+    index=year*12+number-1+delta
+    return f"{index//12:04d}-{index%12+1:02d}"
+
+def history_month(db, month=None, page=0):
+    """Readable paginated history; never mutates the database."""
+    month=month or datetime.now(TZ).strftime("%Y-%m")
+    month_name(month)  # validate year and month, including boundary cases
+    rows=shifts(db,month)
+    count=len(rows)
+    page_size=7
+    total_pages=max(1,(count+page_size-1)//page_size)
+    page=max(0,min(int(page),total_pages-1))
+    closed=[r for r in rows if r["end_utc"]]
+    hours=sum(paid_hours(r) for r in closed)
+    text=(f"📆 <b>История — {month_name(month)}</b>\n\n"
+          f"Смен: <b>{len(closed)}</b> · Часов: <b>{duration(hours)}</b>\n\n")
+    displayed=rows[page*page_size:(page+1)*page_size]
+    if not displayed:
+        text+="В этом месяце записей пока нет."
+    else:
+        text+="\n".join(shift_line(row) for row in displayed)
+    text+=f"\n\n<i>Страница {page+1} из {total_pages}. Полная история — в Excel.</i>"
+    controls=[]
+    if total_pages>1:
+        paging=[]
+        if page>0:paging.append(("◀️ Новее",f"hist:{month}:{page-1}"))
+        if page+1<total_pages:paging.append(("Старее ▶️",f"hist:{month}:{page+1}"))
+        controls.append(paging)
+    controls.extend([
+        [("◀️ Месяц",f"hist:{_adjacent_month(month,-1)}:0"),
+         ("Месяц ▶️",f"hist:{_adjacent_month(month,1)}:0")],
+        [("📥 Все смены (Excel)","file:main")],
+        [("✏️ Исправить","ui:edit"),("🏠 Главная","ui:home")]
+    ])
+    return text,kb(controls)
+
+def week_card(db):
+    monday,hours,earned,count=week_totals(db)
+    today=datetime.now(TZ)
+    total=7
+    return (f"📊 <b>Неделя · {monday:%d.%m}–{monday+timedelta(days=6):%d.%m}</b>\n\n"
+        f"✅ Закрыто смен: <b>{count}</b>\n"
+        f"⏱ Время: <b>{duration(hours)}</b>\n"
+        f"💰 Начислено: <b>{money(earned)}</b>\n\n"
+        "<i>Только закрытые смены. Ночная смена учитывается по дате прихода.</i>"),kb([
+       [("📆 История по месяцам","hist:"+today.strftime("%Y-%m")+":0")],
+       [("📂 Отчёты","ui:reports"),("🏠 Главная","ui:home")]
+    ])
+
 VIEWS={"home":home,"pay":pay,"shifts":history,"reports":report_menu,
        "plan":plan,"office":office,"sources":sources,"evidence":evidence,
-       "settings":settings,"edit":edit,"assistant":assistant,"system":system_status}
+       "settings":settings,"edit":edit,"assistant":assistant,"system":system_status,"week":week_card}

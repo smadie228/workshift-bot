@@ -60,14 +60,17 @@ def sync(db):
 async def reply(update,db,message):
     await update.message.reply_text(message,reply_markup=kb(db))
 
-async def screen(update,context,name="home",month=None):
+async def screen(update,context,name="home",month=None,page=0):
     db=context.application.bot_data["db"]
     if not authorized(update,db):
         return await denied(update,context)
-    view=friendly_ui.VIEWS.get(name)
-    if not view:
-        return
-    text,buttons=view(db,month) if name=="pay" else view(db)
+    if name=="historymonth":
+        text,buttons=friendly_ui.history_month(db,month,page)
+    else:
+        view=friendly_ui.VIEWS.get(name)
+        if not view:
+            return
+        text,buttons=view(db,month) if name=="pay" else view(db)
     if update.callback_query:
         from telegram.error import BadRequest
         try:
@@ -124,6 +127,15 @@ async def inline_action(update,context):
         context.user_data.pop("finance_flow",None)
         context.user_data["assistant_mode"]=(action=="ui:assistant")
         return await screen(update,context,action[3:])
+    if action.startswith("hist:"):
+        try:
+            _,month,pagenum=action.split(":",2)
+            datetime.strptime(month,"%Y-%m")
+            year=int(month[:4]);pagenum=int(pagenum)
+            if not (2000<=year<=2100 and 0<=pagenum<=500):return
+        except (ValueError,IndexError):
+            return
+        return await screen(update,context,"historymonth",month,pagenum)
     if action.startswith("month:"):
         month=action[6:]
         try:
@@ -218,37 +230,39 @@ async def toggle_action(update,context,mode="toggle"):
     sync(db)
     if kind=="in":
         await reply(update,db,
-            "✅ Приход сохранён: "+friendly_time(s["start_utc"])+
-            f"\nПерерыв по умолчанию: {s['break_minutes']} мин.\nИзменить: /break {s['id']} 30")
+            "✅ Приход сохранён · "+friendly_time(s["start_utc"])+
+            f"\n☕ Перерыв: {s['break_minutes']} мин.\n"
+            "Если время нужно исправить, открой «📅 Смены» → «Исправления».")
     else:
         hours=paid_hours(s)
+        from finance import shift_earnings
+        amount=shift_earnings(db,s)
+        pay=f"{amount:,.2f}".replace(","," ").replace(".",",")
         await reply(update,db,
-            "✅ Уход сохранён: "+friendly_time(s["end_utc"])+
-            f"\nСмена №{s['id']}: {hours:.2f} ч\nНачислено: {hours*rate(db):.2f} ₽")
+            "✅ Уход сохранён · "+friendly_time(s["end_utc"])+
+            f"\n⏱ Отработано: {friendly_ui.duration(hours)}"
+            f"\n💰 Начислено: {pay} ₽"
+            "\n\nЕсли время неточное, открой «📅 Смены» → «Исправления».")
 
 async def summary(update,context):
     db=context.application.bot_data["db"]
     if not authorized(update,db):return await denied(update,context)
     month=context.args[0] if context.args else datetime.now(TZ).strftime("%Y-%m")
     try:month=safe_month(month)
-    except ValueError:return await reply(update,db,"Формат: /month 2024-08")
+    except ValueError:return await reply(update,db,"Формат: /month 2024-07")
     return await screen(update,context,"pay",month)
 
 async def history(update,context):
     return await screen(update,context,"shifts")
 
 async def week(update,context):
-    db=context.application.bot_data["db"]
-    if not authorized(update,db):return await denied(update,context)
-    monday,hours,pay,count=week_totals(db)
-    await reply(update,db,f"🕒 Неделя с {monday.strftime('%d.%m.%Y')}\n"
-          f"Смен: {count}\nЧасов: {hours:.2f}\nНачислено: {pay:.2f} ₽")
+    return await screen(update,context,"week")
 
 async def office(update,context):
     db=context.application.bot_data["db"]
     if not authorized(update,db):return await denied(update,context)
     if len(context.args)!=2:
-        return await reply(update,db,"Сверка: /office 2024-08-12 9.23\n"
+        return await reply(update,db,"Сверка: /office 2024-07-12 9.23\n"
             "Часы с офисного табеля вводятся отдельно. «9.23» — десятичные часы, «9:23» — часы и минуты.")
     try:
         day,raw=context.args
@@ -258,7 +272,7 @@ async def office(update,context):
         sync(db)
         return await reply(update,db,f"Офис: {day} — {hrs:.3f} ч. Данные бота не менялись.")
     except (ValueError,TypeError):
-        return await reply(update,db,"Проверь дату и часы: /office 2024-08-12 9.23")
+        return await reply(update,db,"Проверь дату и часы: /office 2024-07-12 9.23")
 
 async def comparison(update,context):
     return await screen(update,context,"office")
@@ -277,8 +291,8 @@ async def edit_help(update,context):
     if not authorized(update,db):return await denied(update,context)
     await reply(update,db,"✏️ Исправление времени\n"
         "1. /history — посмотреть номер смены.\n"
-        "2. /fix 12 2024-08-12 16:08 02:10 30 — исправить смену №12.\n"
-        "3. /manual 2024-08-12 16:08 02:10 30 — добавить пропущенную.\n"
+        "2. /fix 12 2024-07-12 16:08 02:10 30 — исправить смену №12.\n"
+        "3. /manual 2024-07-12 16:08 02:10 30 — добавить пропущенную.\n"
         "После полуночи дата ухода определяется автоматически.\n"
         "Изменения сохраняются в журнале.")
 
@@ -437,9 +451,10 @@ async def on_text(update,context):
 
 async def on_error(update,context):
     LOG.error("Update handler failure: %s",type(context.error).__name__,exc_info=context.error)
-    if isinstance(update,Update) and update.effective_chat:
+    db=context.application.bot_data.get("db")
+    if isinstance(update,Update) and db is not None and authorized(update,db):
         try:await context.bot.send_message(chat_id=update.effective_chat.id,
-             text="Произошла ошибка. Проверь последние смены кнопкой «Мои смены».")
+             text="Не удалось выполнить действие. Проверь историю смен в главном меню.")
         except Exception:pass
 
 def main():
@@ -460,12 +475,12 @@ def main():
         ("break",break_time),("settings",settings),("rate",changed_setting),
         ("defaultbreak",changed_setting)]
     for name,handler in commands:app.add_handler(CommandHandler(name,handler))
-    app.add_handler(CallbackQueryHandler(inline_action,pattern=r"^(ui:|month:|file:|edit:|fin:|helper:|office:)"))
+    app.add_handler(CallbackQueryHandler(inline_action,pattern=r"^(ui:|month:|hist:|file:|edit:|fin:|helper:|office:)"))
     app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE,received_photo))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE,received_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,on_text))
     app.add_error_handler(on_error)
     LOG.info("Starting private shift tracker with Telegram long polling")
-    app.run_polling(allowed_updates=["message"],drop_pending_updates=False,close_loop=False)
+    app.run_polling(allowed_updates=["message","callback_query"],drop_pending_updates=False,close_loop=False)
 
 if __name__=="__main__":main()
