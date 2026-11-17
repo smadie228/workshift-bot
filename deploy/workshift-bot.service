@@ -1,0 +1,34 @@
+[Unit]
+Description=Мои смены — личный Telegram-бот
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=workshift
+Group=workshift
+WorkingDirectory=/srv/workshift-bot/app
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=WORKSHIFTS_DATA=/var/lib/workshift-bot
+Environment=WORKSHIFTS_PAIR_FILE=/var/lib/workshift-bot/pair.code
+EnvironmentFile=/etc/workshift-bot/bot.env
+ExecStart=/srv/workshift-bot/venv/bin/python /srv/workshift-bot/app/bot.py
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/workshift-bot
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=320M
+TasksMax=80
+
+[Install]
+WantedBy=multi-user.target

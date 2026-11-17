@@ -1,0 +1,9 @@
+{
+  "notice": "All entries are fictional demonstration records.",
+  "rate_rub": 280,
+  "shifts": [
+    {"day": "2024-07-08", "in": "09:00", "out": "18:00", "break_minutes": 60},
+    {"day": "2024-07-09", "in": "10:00", "out": "19:00", "break_minutes": 45},
+    {"day": "2024-07-10", "in": "17:00", "out": "01:00", "break_minutes": 30}
+  ]
+}

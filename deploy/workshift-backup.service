@@ -1,0 +1,16 @@
+[Unit]
+Description=Локальная резервная копия «Мои смены»
+
+[Service]
+Type=oneshot
+User=workshift
+Group=workshift
+WorkingDirectory=/srv/workshift-bot/app
+Environment=WORKSHIFTS_DATA=/var/lib/workshift-bot
+ExecStart=/srv/workshift-bot/venv/bin/python /srv/workshift-bot/app/backup.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/workshift-bot
+UMask=0077
