@@ -10,6 +10,7 @@ from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import PatternFill, Font
 from core import TZ, DATA_DIR, shifts, local_day, paid_hours, read_time, rate
 from finance import shift_earnings, payment_totals, rate_at
+from workflows import adjustment_totals
 from report_catalog import make_sheet, addrow, save, MINT, AMBER, CLOUD
 
 def mname(month):
@@ -37,8 +38,8 @@ def report(db,path=None):
 
     overview=make_sheet(wb,"Обзор","МОИ СМЕНЫ · ОТЧЁТ",
         "Личный учёт зарплаты · Москва · данные офиса и личные отметки хранятся отдельно.",
-        ["Месяц","Смены","Часы","Начислено","1–15 число","16–конец","Поступило","Офисных дней"],
-        [22,12,14,22,22,22,22,17])
+        ["Месяц","Смены","Часы","За часы","1–15 число","16–конец","Поступило","Офисных дней","Корректировки","Расчётный итог"],
+        [22,12,14,22,22,22,22,17,23,24])
     for row,month in enumerate(months,7):
         recs=grouped.get(month,[])
         closed=[r for r in recs if r["end_utc"]]
@@ -47,11 +48,13 @@ def report(db,path=None):
         first=sum(shift_earnings(db,r) for r in closed if int(local_day(r["start_utc"])[8:])<=15)
         second=amount-first
         received=payment_totals(db,month)
+        extras=adjustment_totals(db,month)
         offices=db.execute("SELECT COUNT(*) FROM office_days WHERE day LIKE ?",(month+"%",)).fetchone()[0]
         addrow(overview,row,[mname(month),len(closed),round(h,2),round(amount,2),
-              round(first,2),round(second,2),round(sum(received.values()),2),offices],
+              round(first,2),round(second,2),round(sum(received.values()),2),offices,
+              round(extras["net_adjustment"],2),round(amount+extras["net_adjustment"],2)],
               MINT if month==current.strftime("%Y-%m") else None)
-        for col in (4,5,6,7):money_cell(overview.cell(row,col))
+        for col in (4,5,6,7,9,10):money_cell(overview.cell(row,col))
         hrs_cell(overview.cell(row,3))
     if len(months)>=2:
         chart=BarChart()
@@ -62,7 +65,7 @@ def report(db,path=None):
         chart.add_data(Reference(overview,min_col=4,min_row=6,max_row=6+len(months)),titles_from_data=True)
         chart.set_categories(Reference(overview,min_col=1,min_row=7,max_row=6+len(months)))
         overview.add_chart(chart,"J6")
-    overview.auto_filter.ref=f"A6:H{6+len(months)}"
+    overview.auto_filter.ref=f"A6:J{6+len(months)}"
     overview.freeze_panes="B7"
 
     for month in months:
@@ -120,6 +123,18 @@ def report(db,path=None):
               p["paid_on"],p["note"],p["id"]])
         money_cell(payout_ws.cell(idx,3))
     if payments:payout_ws.auto_filter.ref=f"A6:F{6+len(payments)}"
+
+    extra_ws=make_sheet(wb,"Доплаты","ПРЕМИИ, ДОПЛАТЫ И УДЕРЖАНИЯ",
+        "Дополнительные записи вносятся с подтверждением. Это не фактические банковские поступления.",
+        ["Дата","Категория","Сумма, ₽","Примечание","Номер"],[18,27,21,70,14])
+    categories={"bonus":"Премия","allowance":"Доплата","reimbursement":"Возмещение",
+                "deduction":"Удержание"}
+    adjustments=db.execute("SELECT * FROM pay_adjustments ORDER BY day DESC,id DESC").fetchall()
+    for idx,item in enumerate(adjustments,7):
+        addrow(extra_ws,idx,[item["day"],categories.get(item["category"],item["category"]),
+              float(item["amount_rub"]),item["note"],item["id"]])
+        money_cell(extra_ws.cell(idx,3))
+    if adjustments:extra_ws.auto_filter.ref=f"A6:E{6+len(adjustments)}"
 
     rate_ws=make_sheet(wb,"История ставок","ИСТОРИЯ ПОЧАСОВОЙ СТАВКИ",
         "Новые ставки применяются с указанной даты; старые смены остаются по исходным условиям.",

@@ -19,6 +19,8 @@ import finance_wizard
 import pro_assistant
 import office_upload
 import calendar_views
+import workflows
+import extra_wizard
 
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -26,13 +28,20 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 LOG=logging.getLogger("workshift")
 BTN_IN="🟢 Пришёл"
 BTN_OUT="🔴 Ушёл"
+BTN_BREAK_START="☕ Начать перерыв"
+BTN_BREAK_END="▶️ Конец перерыва"
 MENU=[
     ["🏠 Главная","💰 Зарплата"],
     ["📅 Смены","📂 Отчёты"]
 ]
 
 def kb(db):
-    return ReplyKeyboardMarkup([[BTN_OUT if open_shift(db) else BTN_IN]]+MENU,resize_keyboard=True,is_persistent=True)
+    active=open_shift(db)
+    items=[[BTN_OUT if active else BTN_IN]]
+    if active:
+        pause=workflows.break_status(db)
+        items.append([BTN_BREAK_END if pause["on_break"] else BTN_BREAK_START])
+    return ReplyKeyboardMarkup(items+MENU,resize_keyboard=True,is_persistent=True)
 
 def owner(db):
     return config(db,"owner_id")
@@ -139,6 +148,7 @@ async def inline_action(update,context):
         except ValueError:return
         return await screen(update,context,"day",action[4:])
     if action.startswith("ui:"):
+        context.user_data.pop("extra_flow",None)
         context.user_data.pop("correction",None)
         context.user_data.pop("finance_flow",None)
         context.user_data["assistant_mode"]=(action=="ui:assistant")
@@ -159,6 +169,12 @@ async def inline_action(update,context):
         except (ValueError,IndexError):
             return
         return await screen(update,context,"pay",month)
+    if action.startswith("pause:"):
+        return await pause_action(update,context,action[6:])
+    if action.startswith("extra:"):
+        outcome=await extra_wizard.callback(update,context,db)
+        if outcome=="saved":sync(db)
+        return
     if action.startswith("file:"):
         return await send_pretty_file(update,context,action[5:])
     if action.startswith("edit:"):
@@ -183,6 +199,25 @@ async def inline_action(update,context):
     if action=="office:cancel":
         context.user_data.pop("await_office_document",None)
         return await context.bot.send_message(chat_id=update.effective_chat.id,text="Загрузка отменена.")
+
+async def pause_action(update,context,action):
+    db=context.application.bot_data["db"]
+    if not authorized(update,db):
+        return await denied(update,context)
+    try:
+        if action=="start":
+            workflows.start_break(db)
+            message="☕ Перерыв начался. Теперь время считается автоматически."
+        elif action=="end":
+            item=workflows.stop_break(db)
+            message="▶️ Перерыв завершён: "+str(item["minutes"])+" мин."
+        else:
+            return
+    except ValueError as exc:
+        message="⚠️ "+str(exc)
+    if update.callback_query:
+        return await screen(update,context,"home")
+    return await update.message.reply_text(message,reply_markup=kb(db))
 
 async def started(update,context):
     db=context.application.bot_data["db"]
@@ -226,6 +261,8 @@ async def toggle_action(update,context,mode="toggle"):
     db=context.application.bot_data["db"]
     if not authorized(update,db):return await denied(update,context)
     was=open_shift(db)
+    if mode=="out" and was and workflows.active_break(db,was["id"]):
+        return await reply(update,db,"☕ Сначала нажми «Конец перерыва», затем «Ушёл».")
     if mode=="in" and was:return await reply(update,db,"Смена уже начата: "+friendly_time(was["start_utc"]))
     if mode=="out" and not was:return await reply(update,db,"Нет начатой смены.")
     prev=db.execute("SELECT event_utc FROM events WHERE kind IN ('in','out') ORDER BY id DESC LIMIT 1").fetchone()
@@ -432,7 +469,12 @@ async def on_text(update,context):
     db=context.application.bot_data["db"]
     if not authorized(update,db):return await denied(update,context)
     text=update.message.text.strip()
-    all_buttons={name for line in MENU for name in line}|{BTN_IN,BTN_OUT}
+    all_buttons={name for line in MENU for name in line}|{BTN_IN,BTN_OUT,BTN_BREAK_START,BTN_BREAK_END}
+    if context.user_data.get("extra_flow"):
+        if text not in all_buttons:
+            if await extra_wizard.text(update,context):return
+        else:
+            context.user_data.pop("extra_flow",None)
     if context.user_data.get("finance_flow"):
         if text not in all_buttons:
             if await finance_wizard.text(update,context):return
@@ -450,6 +492,8 @@ async def on_text(update,context):
         else:
             context.user_data.pop("assistant_mode",None)
     if text in (BTN_IN,BTN_OUT):return await toggle_action(update,context,"in" if text==BTN_IN else "out")
+    if text in (BTN_BREAK_START,BTN_BREAK_END):
+        return await pause_action(update,context,"start" if text==BTN_BREAK_START else "end")
     if text=="🏠 Главная":return await screen(update,context,"home")
     if text=="💰 Зарплата":return await screen(update,context,"pay")
     if text in ("📅 Смены","📅 Мои смены"):return await screen(update,context,"shifts")
@@ -491,7 +535,7 @@ def main():
         ("break",break_time),("settings",settings),("rate",changed_setting),
         ("defaultbreak",changed_setting)]
     for name,handler in commands:app.add_handler(CommandHandler(name,handler))
-    app.add_handler(CallbackQueryHandler(inline_action,pattern=r"^(noop$|ui:|month:|hist:|cal:|day:|file:|edit:|fin:|helper:|office:)"))
+    app.add_handler(CallbackQueryHandler(inline_action,pattern=r"^(noop$|ui:|month:|hist:|cal:|day:|pause:|extra:|file:|edit:|fin:|helper:|office:)"))
     app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE,received_photo))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE,received_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,on_text))

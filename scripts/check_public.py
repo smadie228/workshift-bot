@@ -9,7 +9,7 @@ PATTERNS={
     "bot_access_token":re.compile(r"\b[0-9]{7,15}:[A-Za-z0-9_-]{30,}\b"),
     "service_credential":re.compile(r"(?i)\b(?:github_pat_|ghp_|gho_|sk-proj-)[A-Za-z0-9_-]{12,}"),
     "local_profile_path":re.compile(r"(?i)(?:[A-Z]:[\\/](?:Users|Documents)[\\/][^\\/\s]+|/(?:home|Users)/[^/\s]+/)"),
-    "ipv4_address":re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+    "ipv4_address":re.compile(r"\b(?!127\.0\.0\.1\b)(?:\d{1,3}\.){3}\d{1,3}\b"),
 }
 for file in ROOT.rglob("*"):
     if not file.is_file() or ".git" in file.parts or "__pycache__" in file.parts:

@@ -50,6 +50,8 @@ def connect(path=None):
     from history_schema import ensure_history
     ensure(db, float(config(db, "rate", "300")))
     ensure_history(db)
+    from workflows import ensure as ensure_workflows
+    ensure_workflows(db)
     return db
 
 def now():
@@ -97,6 +99,9 @@ def toggle(db, update_id, time=None):
             return "duplicate", None
         r = open_shift(db)
         if r:
+            from workflows import active_break
+            if active_break(db,r["id"]):
+                raise ValueError("Перерыв ещё идёт. Сначала заверши его кнопкой «Конец перерыва».")
             start = datetime.fromisoformat(r["start_utc"])
             if at <= start:
                 raise ValueError("Время окончания не может предшествовать приходу")
@@ -239,6 +244,8 @@ def close_open_shift(db,sid,end_hhmm,break_minutes=None):
     try:
         row=db.execute("SELECT * FROM shifts WHERE id=? AND end_utc IS NULL",(sid,)).fetchone()
         if not row:raise ValueError("Смена уже закрыта или не найдена")
+        from workflows import active_break
+        if active_break(db,sid):raise ValueError("Сначала закрой текущий перерыв.")
         start=datetime.fromisoformat(row["start_utc"])
         end=parse_local_datetime(local_day(row["start_utc"]),end_hhmm)
         if end<=start:end+=timedelta(days=1)

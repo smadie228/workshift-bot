@@ -1,0 +1,37 @@
+[Unit]
+Description=Мои смены — закрытый локальный кабинет
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/srv/workshift-bot/app/miniapp/index.html
+
+[Service]
+Type=simple
+User=workshift
+Group=workshift
+WorkingDirectory=/srv/workshift-bot/app
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=WORKSHIFTS_DATA=/var/lib/workshift-bot
+Environment=MINIAPP_PORT=8765
+Environment=MINIAPP_ENABLE_WRITES=0
+EnvironmentFile=/etc/workshift-bot/bot.env
+ExecStart=/srv/workshift-bot/venv/bin/python /srv/workshift-bot/app/miniapp_server.py
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/workshift-bot
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET
+MemoryMax=160M
+TasksMax=40
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

@@ -10,12 +10,15 @@ import pro_assistant
 from pathlib import Path
 import shutil
 from core import DATA_DIR
+import workflows
 
 def kb(rows):
     return InlineKeyboardMarkup([[InlineKeyboardButton(text,callback_data=data) for text,data in row] for row in rows])
 
 def money(value):
-    return f"{value:,.0f}".replace(","," ")+" ₽"
+    v=float(value)
+    digits=0 if v.is_integer() else 2
+    return f"{v:,.{digits}f}".replace(","," ").replace(".",",")+" ₽"
 
 def duration(hours):
     minutes=round(hours*60)
@@ -39,40 +42,65 @@ def home(db):
     cur=datetime.now(TZ).strftime("%Y-%m")
     current=totals(db,cur)
     active=open_shift(db)
-    status=(f"🟢 <b>В работе</b> с {read_time(active['start_utc']):%H:%M}" if active else "⚪ Сейчас смена не начата")
-    text=("\u200b🏠 <b>Мои смены</b>\n\n"
-          f"{status}\n"
-          f"📅 {month_name(cur)} · {current['shifts']} смен\n"
-          f"⏱ {duration(current['hours'])}\n"
-          f"💰 <b>{money(current['earnings'])}</b>\n\n"
-          "Для прихода и ухода используй большую кнопку внизу.")
-    return text,kb([
+    pause=workflows.break_status(db)
+    risk=workflows.issues(db)
+    if active:
+        started=read_time(active["start_utc"])
+        gross=max(0,(datetime.now(TZ)-started).total_seconds()/3600)
+        status=(f"☕ <b>Перерыв с {read_time(pause['break_started_utc']):%H:%M}</b>"
+                if pause["on_break"] else
+                f"🟢 <b>На работе с {started:%H:%M}</b>")
+        clock=f"\n⏳ С начала смены: {duration(gross)}"
+    else:
+        status="⚪ Сейчас смена не начата"
+        clock=""
+    text=(f"🏠 <b>Мои смены</b>\n\n"
+          f"{status}{clock}\n\n"
+          f"📅 {month_name(cur)} · {current['shifts']} закрытых смен\n"
+          f"⏱ Отработано: <b>{duration(current['hours'])}</b>\n"
+          f"💰 Начислено: <b>{money(current['earnings'])}</b>"
+          +(f"\n⚠️ Проверить: {len(risk)} записей" if risk else "")
+          +"\n\nОсновная кнопка прихода/ухода — внизу.")
+    rows=[]
+    if pause["on_break"]:
+        rows.append([("▶️ Закончить перерыв","pause:end")])
+    elif active:
+        rows.append([("☕ Начать перерыв","pause:start")])
+    rows.extend([
       [("💰 Зарплата","ui:pay"),("📅 История","ui:shifts")],
       [("🕒 Неделя","ui:week"),("🗓 Календарь","cal:"+cur)],
-      [("🗓 План","ui:plan"),("📂 Отчёты","ui:reports")],
-      [("🏢 Сверка","ui:office")],
-      [("🧭 Помощник","ui:assistant"),("⚙️ Настройки","ui:settings")]])
+      [("📋 Мой план","ui:plan"),("📂 Отчёты","ui:reports")],
+      [("🏢 Сверка","ui:office"),("⚠️ Проверка","ui:issues")],
+      [("💵 Доплаты","ui:adjustments"),("⚙️ Настройки","ui:settings")],
+      [("🧭 Помощник","ui:assistant")]
+    ])
+    return text,kb(rows)
 
 def pay(db,month=None):
     month=month or datetime.now(TZ).strftime("%Y-%m")
-    t=totals(db,month); a=totals(db,month,1); b=totals(db,month,2)
-    received=payment_totals(db,month)
-    text=(f"💰 <b>Зарплата — {month_name(month)}</b>\n\n"
-          f"Начислено: <b>{money(t['earnings'])}</b>\n"
-          f"Отработано: {duration(t['hours'])}\n"
-          f"Закрыто смен: {t['shifts']}\n\n"
-          f"① 1–15 число: <b>{money(a['earnings'])}</b>\n"
-          f"② 16–конец: <b>{money(b['earnings'])}</b>\n\n"
-          f"💳 Получено по отметкам: <b>{money(sum(received.values()))}</b>\n"
-          "<i>Начислено и поступило — разные суммы; налоги и авансы отдельно.</i>")
+    t=totals(db,month);a=totals(db,month,1);b=totals(db,month,2)
+    got=payment_totals(db,month)
+    adj=workflows.adjustment_totals(db,month)
+    expected=t["earnings"]+adj["net_adjustment"]
+    text=(f"💰 <b>Зарплата · {month_name(month)}</b>\n\n"
+          f"⏱ {duration(t['hours'])} · {t['shifts']} закрытых смен\n"
+          f"За часы: <b>{money(t['earnings'])}</b>\n"
+          f"① 1–15: {money(a['earnings'])}\n"
+          f"② 16–конец: {money(b['earnings'])}\n\n"
+          f"🎁 Премии и доплаты: +{money(adj['bonus']+adj['allowance'])}\n"
+          f"🚗 Возмещения: +{money(adj['reimbursement'])}\n"
+          f"➖ Удержания: −{money(adj['deduction'])}\n"
+          f"🧮 Сумма записей: <b>{money(expected)}</b>\n"
+          f"💳 Отмечено поступлений: <b>{money(sum(got.values()))}</b>\n\n"
+          "<i>Без самостоятельного расчёта налогов. Ведомость работодателя может отличаться.</i>")
     y,m=map(int,month.split("-"))
-    prev=f"{y-1 if m==1 else y:04d}-{12 if m==1 else m-1:02d}"
-    nextm=f"{y+1 if m==12 else y:04d}-{1 if m==12 else m+1:02d}"
+    previous=f"{y-1 if m==1 else y:04d}-{12 if m==1 else m-1:02d}"
+    following=f"{y+1 if m==12 else y:04d}-{1 if m==12 else m+1:02d}"
     return text,kb([
-      [("◀️ Предыдущий",f"month:{prev}"),("Следующий ▶️",f"month:{nextm}")],
-      [("💳 Добавить поступление","fin:new:payment")],
-      [("📥 Скачать Excel","file:main")],
-      [("🏠 Главная","ui:home")]])
+       [("◀️ Месяц",f"month:{previous}"),("Месяц ▶️",f"month:{following}")],
+       [("💵 Доплаты и удержания","ui:adjustments")],
+       [("💳 Записать поступление","fin:new:payment")],
+       [("📥 Скачать Excel","file:main"),("🏠 Главная","ui:home")]])
 
 def history(db):
     rows=shifts(db,limit=6)
@@ -95,26 +123,19 @@ def report_menu(db):
       [("🏠 Главная","ui:home")]])
 
 def plan(db):
+    rows=workflows.upcoming_plan(db,limit=8)
+    text="📋 <b>План смен</b>\n\n"
+    if not rows:text+="Пока нет ближайших запланированных дней."
+    for p in rows:
+        stamp=datetime.strptime(p["day"],"%Y-%m-%d").strftime("%d.%m")
+        label="🌿 Выходной" if p["status"]=="off" else f"🟡 {p['start'] or '—'}–{p['end'] or '—'}"
+        text+=f"• <b>{stamp}</b> · {label}\n"
+    text+="\n<i>План не прибавляется к фактически отработанным часам.</i>"
     today=datetime.now(TZ).date().isoformat()
-    rows=db.execute("""SELECT day,status,start_time,end_time FROM (
-        SELECT day,status,start_time,end_time,
-        ROW_NUMBER() OVER (PARTITION BY day ORDER BY imported_utc DESC,source DESC) AS rn
-        FROM history_source_rows
-        WHERE day>=? AND status IN ('План','Выходной')
-    ) WHERE rn=1 ORDER BY day LIMIT 5""",(today,)).fetchall()
-    text="🗓 <b>Ближайшие дни</b>\n\n"
-    if not rows:
-        text+="В старой таблице нет ближайших плановых смен."
-    for r in rows:
-        stamp=datetime.strptime(r["day"],"%Y-%m-%d").strftime("%d.%m")
-        if r["status"]=="Выходной":
-            text+=f"🌿 <b>{stamp}</b> · выходной\n"
-        else:
-            text+=f"🟡 <b>{stamp}</b> · {escape(r['start_time'] or '—')}–{escape(r['end_time'] or '—')}\n"
-    text+="\n<i>Это план из Excel, а не подтверждённый факт.</i>"
     return text,kb([
-      [("📥 Скачать красивый план","file:plan")],
-      [("📂 Все отчёты","ui:reports"),("🏠 Главная","ui:home")]])
+      [("🗓 Открыть календарь","cal:"+today[:7])],
+      [("➕ Завтра · 16–02","extra:plan:quick:"+(datetime.now(TZ).date()+timedelta(days=1)).isoformat())],
+      [("📥 Скачать план","file:plan"),("🏠 Главная","ui:home")]])
 
 def office(db):
     total=db.execute("SELECT COUNT(*) FROM office_days").fetchone()[0]
@@ -261,6 +282,40 @@ def week_card(db):
        [("📂 Отчёты","ui:reports"),("🏠 Главная","ui:home")]
     ])
 
+def issues_view(db):
+    found=workflows.issues(db)
+    text="⚠️ <b>Проверка учёта</b>\n\n"
+    if not found:
+        text+="Сейчас подозрительных и незакрытых записей не обнаружено."
+    else:
+        for item in found[:8]:
+            text+=f"• <b>{item['day']}</b> · {escape(item['text'])}\n"
+    text+="\n\n<i>Это подсказки для проверки, а не автоматические исправления.</i>"
+    return text,kb([
+      [("✏️ Проверить и исправить","ui:edit")],
+      [("📅 Календарь","cal:"+datetime.now(TZ).strftime("%Y-%m"))],
+      [("🏠 Главная","ui:home")]])
+
+def adjustments_view(db):
+    current=datetime.now(TZ).strftime("%Y-%m")
+    rows=db.execute("""SELECT day,category,amount_rub FROM pay_adjustments
+        ORDER BY day DESC,id DESC LIMIT 5""").fetchall()
+    labels={"bonus":"🎁 Премия","allowance":"➕ Доплата",
+            "reimbursement":"🚗 Возмещение","deduction":"➖ Удержание"}
+    text="💵 <b>Доплаты и удержания</b>\n\n"
+    if not rows:text+="Пока ничего не записано.\n"
+    for r in rows:
+        text+=(f"• {r['day'][5:]} · {labels.get(r['category'],'Запись')}: "
+               f"{money(float(r['amount_rub']))}\n")
+    text+="\n<i>Отдельно от почасовых начислений, с записью в журнале.</i>"
+    return text,kb([
+      [("🎁 Премия","extra:adjust:bonus"),("➕ Доплата","extra:adjust:allowance")],
+      [("🚗 Возмещение","extra:adjust:reimbursement"),("➖ Удержание","extra:adjust:deduction")],
+      [("💰 Зарплата","ui:pay"),("🏠 Главная","ui:home")]])
+
+
 VIEWS={"home":home,"pay":pay,"shifts":history,"reports":report_menu,
        "plan":plan,"office":office,"sources":sources,"evidence":evidence,
-       "settings":settings,"edit":edit,"assistant":assistant,"system":system_status,"week":week_card}
+       "settings":settings,"edit":edit,"assistant":assistant,
+       "system":system_status,"week":week_card,
+       "issues":issues_view,"adjustments":adjustments_view}

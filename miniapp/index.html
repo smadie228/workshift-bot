@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0c1828">
+<title>Мои смены</title>
+<link rel="icon" href="./logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./app.css">
+<script src="https://telegram.org/js/telegram-web-app.js?65"></script>
+<script defer src="./app.js"></script>
+</head>
+<body data-theme="dark">
+<main class="shell">
+  <header class="masthead">
+    <div class="identity">
+      <img class="symbol" src="./logo.svg" alt="" aria-hidden="true">
+      <div><p class="eyebrow">Личный рабочий кабинет</p><h1>Мои смены</h1></div>
+    </div>
+    <div class="header-tools">
+      <span id="connection" class="connection" aria-live="polite"><span class="dot"></span>Подключение</span>
+      <button class="circle-button" id="theme-switch" aria-label="Сменить тему">☼</button>
+    </div>
+  </header>
+
+  <div id="demo-banner" class="demo-banner">Демонстрация · вымышленные данные</div>
+  <div id="offline-banner" class="offline-banner" hidden>Нет связи. Новые отметки можно сохранить только как черновики для подтверждения позже.</div>
+
+  <section class="page shown" id="page-home" aria-label="Главная">
+    <div class="section-overline"><span>Сегодня</span><span id="today-date"></span></div>
+    <article class="work-card">
+      <div class="work-card-top"><span id="shift-label" class="state-pill"><span class="dot"></span>Смена не начата</span><span class="card-kicker">РАБОЧЕЕ ВРЕМЯ</span></div>
+      <div class="time-display" id="live-time" aria-live="off">00:00:00</div>
+      <p class="muted" id="shift-subtitle">Начни смену одним нажатием</p>
+      <div class="shift-meta">
+        <div><span>Приход</span><strong id="shift-start">—</strong></div>
+        <div><span>Перерыв</span><strong id="shift-break">30 мин</strong></div>
+        <div><span>Сейчас</span><strong id="shift-now">—</strong></div>
+      </div>
+      <div class="action-buttons">
+        <button class="main-action" id="shift-action">● Пришёл</button>
+        <button class="secondary-action" id="break-action" hidden>☕ Перерыв</button>
+      </div>
+      <p class="mini-disclaimer">Сервер фиксирует время. Пропущенную отметку можно исправить через подтверждение в чате.</p>
+    </article>
+    <div class="section-heading"><h2>Месяц в цифрах</h2><span id="month-title-home"></span></div>
+    <div class="metrics">
+      <article class="metric"><div class="metric-icon">◷</div><span>Отработано</span><strong id="home-hours">—</strong><small id="home-shifts">— смен</small></article>
+      <article class="metric"><div class="metric-icon gold">₽</div><span>Начислено</span><strong id="home-money">—</strong><small>По личным записям</small></article>
+    </div>
+    <article class="small-card tappable" id="alerts-preview" data-nav="review" tabindex="0" role="button">
+      <div class="side-icon">◇</div><div class="grow"><strong>Контроль записей</strong><p id="alerts-summary">Загрузка...</p></div><span class="arrow">›</span>
+    </article>
+    <div class="section-heading"><h2>Последние смены</h2><button class="text-button" data-nav="calendar">Календарь ›</button></div>
+    <div id="recent-shifts" class="stack"></div>
+  </section>
+
+  <section class="page" id="page-calendar" aria-label="Календарь">
+    <div class="section-heading space-between"><div><p class="eyebrow">РАСПИСАНИЕ</p><h2>Календарь</h2></div><div class="month-switcher"><button id="month-prev" aria-label="Предыдущий месяц">‹</button><span id="calendar-month"></span><button id="month-next" aria-label="Следующий месяц">›</button></div></div>
+    <article class="calendar-card">
+      <div class="weekday-grid"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
+      <div id="calendar-grid" class="date-grid" role="grid" aria-label="Календарь рабочего времени"></div>
+      <div class="legend"><span><i class="legend-dot worked"></i>Работал</span><span><i class="legend-dot planned"></i>План</span><span><i class="legend-dot off"></i>Выходной</span></div>
+    </article>
+    <div class="section-heading"><h2 id="day-heading">Выбранный день</h2></div>
+    <article id="day-details" class="details-card"><p class="muted">Нажми на дату в календаре.</p></article>
+    <p class="footnote">План, реальные отметки и часы офиса сохраняются отдельно.</p>
+  </section>
+
+  <section class="page" id="page-salary" aria-label="Зарплата">
+    <div class="section-overline"><span>Финансовый обзор</span><span id="salary-month"></span></div>
+    <article class="salary-hero">
+      <span class="muted">Расчётная сумма с корректировками</span>
+      <strong id="salary-total">—</strong>
+      <span class="subline" id="salary-hours">— часов</span>
+      <div class="salary-stats"><div><span>За часы</span><strong id="salary-base">—</strong></div><div><span>Доплаты и удержания</span><strong id="salary-extra">—</strong></div></div>
+    </article>
+    <div class="section-heading"><h2>Рабочие часы · 6 недель</h2></div>
+    <article class="chart-card"><div id="weekly-chart" class="bar-chart" role="img" aria-label="Отработанные часы за шесть недель"></div></article>
+    <div class="section-heading"><h2>Начисления и поступления</h2></div>
+    <article class="small-card"><div class="side-icon gold">₽</div><div class="grow"><strong>Получено</strong><p>Суммы, которые внесены вручную</p></div><strong id="salary-received">—</strong></article>
+    <article class="small-card"><div class="side-icon">＋</div><div class="grow"><strong>Премии и доплаты</strong><p>Не смешиваются с почасовой ставкой</p></div><strong id="salary-bonuses">—</strong></article>
+    <article class="small-card"><div class="side-icon amber">−</div><div class="grow"><strong>Удержания</strong><p>Без автоматического расчёта налогов</p></div><strong id="salary-deductions">—</strong></article>
+    <p class="footnote">Расчёт справочный, не заменяет ведомость работодателя.</p>
+  </section>
+
+  <section class="page" id="page-review" aria-label="Контроль и настройки">
+    <div class="section-overline">КАЧЕСТВО ДАННЫХ</div>
+    <h2 class="big-heading">Контроль и настройки</h2>
+    <article class="review-card"><div class="review-title"><span>◇</span><strong>Что нужно проверить</strong></div><div id="issue-list" class="stack"></div></article>
+    <div class="section-heading"><h2>Как работает система</h2></div>
+    <div class="settings-list">
+      <div class="settings-row"><span class="settings-icon">🔒</span><div><strong>Приватный доступ</strong><small>Подпись Telegram и проверка владельца</small></div><span class="status-value">Защищено</span></div>
+      <div class="settings-row"><span class="settings-icon">📂</span><div><strong>История и отчёты</strong><small>Серверная база с журналом правок</small></div><span class="status-value">Сохранены</span></div>
+      <div class="settings-row"><span class="settings-icon">☾</span><div><strong>Тема интерфейса</strong><small>Тёмная или светлая</small></div><button class="small-switch" id="theme-row-switch">Изменить</button></div>
+      <div class="settings-row"><span class="settings-icon">🔔</span><div><strong>Напоминания</strong><small>Не включены без выбора расписания</small></div><span class="status-value">Выкл.</span></div>
+    </div>
+    <div id="pending-drafts" class="drafts" hidden></div>
+    <p class="footnote">Исправления времени, план и выплаты можно менять кнопками в чате бота.</p>
+  </section>
+
+  <nav class="bottom-nav" aria-label="Разделы">
+    <button data-nav="home" class="nav-item active" aria-current="page"><span>⌂</span>Главная</button>
+    <button data-nav="calendar" class="nav-item"><span>▦</span>Календарь</button>
+    <button data-nav="salary" class="nav-item"><span>₽</span>Деньги</button>
+    <button data-nav="review" class="nav-item"><span>☷</span>Контроль</button>
+  </nav>
+</main>
+<div id="toast" role="status" aria-live="polite" class="toast" hidden></div>
+<div id="modal" class="modal-backdrop" hidden>
+ <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+   <h3 id="modal-title"></h3><p id="modal-text"></p>
+   <div class="modal-actions"><button id="modal-cancel" class="secondary-action">Отмена</button>
+     <button id="modal-confirm" class="main-action">Подтвердить</button></div>
+ </div>
+</div>
+</body>
+</html>

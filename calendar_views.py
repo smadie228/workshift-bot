@@ -5,6 +5,7 @@ from html import escape
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from core import TZ, shifts, local_day, read_time, paid_hours
 from finance import shift_earnings
+import workflows
 
 MONTHS=["январь","февраль","март","апрель","май","июнь",
         "июль","август","сентябрь","октябрь","ноябрь","декабрь"]
@@ -38,6 +39,8 @@ def month_view(db,month=None):
         WHERE day>=? AND day<? AND status IN ('План','Выходной')
         ORDER BY imported_utc,source""",(first,end)).fetchall()
     marks={r["day"]:("🟡" if r["status"]=="План" else "🌿") for r in plans}
+    for r in db.execute("SELECT day,status FROM plan_days WHERE day>=? AND day<?",(first,end)):
+        marks[r["day"]]="🌿" if r["status"]=="off" else "🟡"
     actual=shifts(db,month)
     for row in actual:
         marks[local_day(row["start_utc"])]="✅" if row["end_utc"] else "🟢"
@@ -80,9 +83,7 @@ def day_view(db,day):
         raise ValueError("Неверная дата") from exc
     rows=[s for s in shifts(db,target.strftime("%Y-%m"))
           if local_day(s["start_utc"])==day]
-    plan=db.execute("""SELECT status,start_time,end_time FROM history_source_rows
-        WHERE day=? AND status IN ('План','Выходной')
-        ORDER BY imported_utc DESC,source DESC LIMIT 1""",(day,)).fetchone()
+    plan=workflows.plan_day(db,day)
     off=db.execute("SELECT hours FROM office_days WHERE day=?",(day,)).fetchone()
     names=("Пн","Вт","Ср","Чт","Пт","Сб","Вс")
     text=f"📅 <b>{target:%d.%m.%Y}</b> · {names[target.weekday()]}\n\n"
@@ -105,11 +106,11 @@ def day_view(db,day):
     else:
         text+="За этот день фактических отметок нет.\n\n"
     if plan:
-        if plan["status"]=="Выходной":
+        if plan["status"]=="off":
             text+="🌿 По импортированному плану: выходной.\n"
         else:
-            text+=(f"🟡 План: {escape(str(plan['start_time'] or '—'))}"
-                   f"–{escape(str(plan['end_time'] or '—'))}\n")
+            text+=(f"🟡 План: {escape(str(plan['start'] or '—'))}"
+                   f"–{escape(str(plan['end'] or '—'))}\n")
     if off:
         text+=f"🏢 Подтверждено офисом: {off['hours']:.2f} ч.\n"
     text+="\n<i>Плановые часы не прибавляются к отработанным.</i>"
@@ -122,6 +123,11 @@ def day_view(db,day):
             actions.append([("🔴 Уточнить уход","edit:close")])
     elif target<=datetime.now(TZ).date():
         actions.append([("➕ Добавить пропущенную смену",f"edit:day:{day}")])
+    if target>=datetime.now(TZ).date():
+        actions.extend([
+          [("🟡 План 16–02",f"extra:plan:quick:{day}"),("🌿 Выходной",f"extra:plan:off:{day}")],
+          [("🕒 Другое время",f"extra:plan:custom:{day}")]
+        ])
     actions.extend([
         [("◀️ Календарь",f"cal:{target:%Y-%m}")],
         [("📆 История месяца",f"hist:{target:%Y-%m}:0"),("🏠 Главная","ui:home")]

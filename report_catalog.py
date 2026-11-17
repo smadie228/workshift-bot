@@ -72,15 +72,20 @@ def plan(db):
     ws=make_sheet(book,"План","ПЛАН СМЕН",
         "Плановые дни из Excel — не подтвержденные смены. Фактическое время фиксируется кнопками Telegram.",
         ["Дата","День","Приход","Уход","Статус","Комментарий"],[18,14,14,14,18,52])
-    rows=db.execute("""SELECT day,weekday,start_time,end_time,status FROM (
-        SELECT day,weekday,start_time,end_time,status,
-        ROW_NUMBER() OVER (PARTITION BY day ORDER BY imported_utc DESC,source DESC) AS rn
-        FROM history_source_rows WHERE status IN ('План','Выходной')
-    ) WHERE rn=1 ORDER BY day""").fetchall()
+    from workflows import plan_day
+    all_days=db.execute("""SELECT day FROM plan_days
+        UNION SELECT day FROM history_source_rows WHERE status IN ('План','Выходной')
+        ORDER BY day""").fetchall()
+    rows=[plan_day(db,row["day"]) for row in all_days]
     for i,r in enumerate(rows,7):
-        status=r["status"]
-        addrow(ws,i,[r["day"],r["weekday"] or "",r["start_time"] or "—",r["end_time"] or "—",
-             status,"План · не засчитывается в зарплату" if status=="План" else "Выходной"],MINT if status=="Выходной" else (CLOUD if i%2==0 else WHITE))
+        day=datetime.strptime(r["day"],"%Y-%m-%d")
+        status="Выходной" if r["status"]=="off" else "План"
+        desc=("Подтверждено вручную" if r["source"]=="manual"
+              else "Исходный план из Excel")
+        addrow(ws,i,[r["day"],["Пн","Вт","Ср","Чт","Пт","Сб","Вс"][day.weekday()],
+             r["start"] or "—",r["end"] or "—",status,
+             desc+" · не является фактически отработанной сменой"],
+             MINT if status=="Выходной" else (CLOUD if i%2==0 else WHITE))
     if rows:ws.auto_filter.ref=f"A6:F{6+len(rows)}"
     return save(book,"План смен.xlsx")
 

@@ -17,6 +17,8 @@ jobs:
       - name: Install
         run: python -m pip install -r requirements.txt
       - name: Unit tests
-        run: python -m unittest test_core.py test_pro.py test_interactions.py test_callbacks.py test_backup.py test_security.py test_calendar.py -v
+        run: python -m unittest test_core.py test_pro.py test_interactions.py test_callbacks.py test_backup.py test_security.py test_calendar.py test_workflows.py test_flow_ui.py test_miniapp.py -v
+      - name: Browser syntax check
+        run: node --check miniapp/app.js
       - name: Release check
         run: python scripts/check_public.py
