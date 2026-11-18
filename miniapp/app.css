@@ -105,3 +105,22 @@ h1{font-size:21px;margin:0;line-height:1.15;letter-spacing:-.035em;font-weight:8
 @media(min-width:720px){.shell{padding-top:28px}.work-card{padding:30px}.page.shown{max-width:720px}.bottom-nav{border-radius:18px 18px 0 0}.date-grid button{aspect-ratio:1.4}}
 @media(max-width:370px){.shell{padding:14px 12px 104px}.connection{font-size:0}.connection .dot{width:10px;height:10px}.work-card{padding:20px 16px}.metric{padding:14px 11px}.legend{gap:8px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Access, safe areas, keyboard and narrow touch screens. */
+.info-banner{margin:0 0 15px;padding:11px 13px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--muted);font-size:12px;line-height:1.5}
+.auth-blocked .page{display:none!important}.auth-blocked .bottom-nav{opacity:.5;pointer-events:none}
+.modal-open{overflow:hidden}.modal-sheet{max-height:85dvh;overflow:auto}
+.shell{padding-top:max(20px,env(safe-area-inset-top),var(--tg-safe-area-inset-top,0px),var(--tg-content-safe-area-inset-top,0px));padding-bottom:calc(116px + max(env(safe-area-inset-bottom),var(--tg-safe-area-inset-bottom,0px)));padding-left:max(18px,env(safe-area-inset-left));padding-right:max(18px,env(safe-area-inset-right))}
+.bottom-nav{padding-bottom:calc(10px + max(env(safe-area-inset-bottom),var(--tg-safe-area-inset-bottom,0px),var(--tg-content-safe-area-inset-bottom,0px)))}
+.identity{min-width:0}.identity .eyebrow{letter-spacing:.08em}.header-tools{flex-shrink:0}
+.circle-button{width:44px;height:44px}.month-switcher button{width:44px;height:44px}
+.text-button,.small-switch{min-height:44px}.nav-item{min-height:48px}
+.date-grid button{min-height:44px;aspect-ratio:auto}.date-grid{gap:3px}
+.metric strong{font-size:clamp(16px,4.1vw,23px);white-space:normal;overflow-wrap:anywhere}
+.small-card>strong{flex-shrink:0;max-width:43%;overflow-wrap:anywhere}
+.day-edit-link{margin-top:16px}.offline-banner p{margin:0 0 8px}
+body[data-theme="light"] .offline-banner{color:#8e471b}
+@media(max-width:430px){.connection{font-size:0}.connection .dot{width:9px;height:9px}.shell{padding-left:12px;padding-right:12px}.card-kicker{font-size:8px;letter-spacing:.08em}}
+@media(min-width:720px){.date-grid button{min-height:66px}}
+
+.month-picker{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;color:var(--muted);font-size:12px}.month-picker input{min-width:0;max-width:65%;min-height:44px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--ink);font:inherit;font-size:16px;padding:6px 9px;color-scheme:dark}body[data-theme="light"] .month-picker input{color-scheme:light}

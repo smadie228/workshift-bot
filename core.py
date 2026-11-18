@@ -88,14 +88,16 @@ def log(db, kind, shift_id=None, details=None):
     db.execute("INSERT INTO events(event_utc,kind,shift_id,details) VALUES(?,?,?,?)",
                (iso(now()), kind, shift_id, json.dumps(details or {}, ensure_ascii=False)))
 
-def toggle(db, update_id, time=None):
+def toggle(db, update_id, time=None, *, manage_transaction=True):
     """Атомарный переход + идемпотентность Telegram update_id."""
     at = time or now()
-    db.execute("BEGIN IMMEDIATE")
+    if not manage_transaction and not db.in_transaction:
+        raise RuntimeError("An outer write transaction is required")
+    if manage_transaction:db.execute("BEGIN IMMEDIATE")
     try:
         old = db.execute("SELECT 1 FROM processed_updates WHERE update_id=?", (update_id,)).fetchone()
         if old:
-            db.execute("COMMIT")
+            if manage_transaction:db.execute("COMMIT")
             return "duplicate", None
         r = open_shift(db)
         if r:
@@ -118,10 +120,10 @@ def toggle(db, update_id, time=None):
         log(db, action, sid, {"telegram_update_id": update_id, "at": iso(at)})
         db.execute("INSERT INTO processed_updates(update_id,event_utc) VALUES(?,?)",
                    (update_id, iso(at)))
-        db.execute("COMMIT")
+        if manage_transaction:db.execute("COMMIT")
         return action, db.execute("SELECT * FROM shifts WHERE id=?", (sid,)).fetchone()
     except Exception:
-        db.execute("ROLLBACK")
+        if manage_transaction and db.in_transaction:db.execute("ROLLBACK")
         raise
 
 def paid_hours(shift):

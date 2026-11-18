@@ -69,11 +69,14 @@ def break_status(db):
     tracked=db.execute("SELECT 1 FROM tracked_break_shifts WHERE shift_id=?",(s["id"],)).fetchone()
     return {"active":True,"on_break":running is not None,"tracked":bool(tracked),
             "minutes":s["break_minutes"],"started_utc":s["start_utc"],
-            "break_started_utc":running["started_utc"] if running else None}
+            "break_started_utc":running["started_utc"] if running else None,
+            "break_id":running["id"] if running else None}
 
-def start_break(db,at=None):
+def start_break(db,at=None,*,manage_transaction=True):
     at=at or now()
-    db.execute("BEGIN IMMEDIATE")
+    if not manage_transaction and not db.in_transaction:
+        raise RuntimeError("An outer write transaction is required")
+    if manage_transaction:db.execute("BEGIN IMMEDIATE")
     try:
         s=open_shift(db)
         if s is None:raise ValueError("Сначала отметь приход на работу.")
@@ -95,15 +98,17 @@ def start_break(db,at=None):
         db.execute("""INSERT INTO break_sessions(shift_id,started_utc,created_utc)
             VALUES(?,?,?)""",(s["id"],iso(at),iso(at)))
         log(db,"break_start",s["id"],{"at":iso(at)})
-        db.execute("COMMIT")
+        if manage_transaction:db.execute("COMMIT")
         return s["id"]
     except Exception:
-        db.execute("ROLLBACK")
+        if manage_transaction and db.in_transaction:db.execute("ROLLBACK")
         raise
 
-def stop_break(db,at=None):
+def stop_break(db,at=None,*,manage_transaction=True):
     at=at or now()
-    db.execute("BEGIN IMMEDIATE")
+    if not manage_transaction and not db.in_transaction:
+        raise RuntimeError("An outer write transaction is required")
+    if manage_transaction:db.execute("BEGIN IMMEDIATE")
     try:
         s=open_shift(db)
         if not s:raise ValueError("Открытой смены нет.")
@@ -123,10 +128,10 @@ def stop_break(db,at=None):
         db.execute("UPDATE shifts SET break_minutes=?,updated_utc=? WHERE id=?",
                    (total,iso(at),s["id"]))
         log(db,"break_end",s["id"],{"minutes":minutes,"total":total})
-        db.execute("COMMIT")
+        if manage_transaction:db.execute("COMMIT")
         return {"shift_id":s["id"],"minutes":minutes,"total":total}
     except Exception:
-        db.execute("ROLLBACK")
+        if manage_transaction and db.in_transaction:db.execute("ROLLBACK")
         raise
 
 def plan_day(db,day):

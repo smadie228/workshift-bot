@@ -12,7 +12,7 @@ PATTERNS={
     "ipv4_address":re.compile(r"\b(?!127\.0\.0\.1\b)(?:\d{1,3}\.){3}\d{1,3}\b"),
 }
 for file in ROOT.rglob("*"):
-    if not file.is_file() or ".git" in file.parts or "__pycache__" in file.parts:
+    if not file.is_file() or any(part in {".git","__pycache__","node_modules"} for part in file.parts):
         continue
     relative=file.relative_to(ROOT)
     if file.suffix.lower() in FORBIDDEN_EXTENSIONS:

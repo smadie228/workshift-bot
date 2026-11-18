@@ -1,0 +1,15 @@
+{
+  "name": "workshift-ui-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Fictional-data browser regression checks",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test:browser": "node scripts/test_browser.cjs"
+  },
+  "devDependencies": {
+    "puppeteer": "25.16.0"
+  }
+}

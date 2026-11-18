@@ -30,3 +30,9 @@ venv/
 .vscode/
 Thumbs.db
 .DS_Store
+
+# Local browser test dependencies and captures
+node_modules/
+browser-checks/
+.cache/
+npm-debug.log*

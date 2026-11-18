@@ -27,10 +27,13 @@
   <div id="demo-banner" class="demo-banner">Демонстрация · вымышленные данные</div>
   <div id="offline-banner" class="offline-banner" hidden>Нет связи. Новые отметки можно сохранить только как черновики для подтверждения позже.</div>
 
+  <div id="view-only-banner" class="info-banner" hidden>Кабинет работает в режиме просмотра. Отметки, перерывы и исправления доступны в чате бота.</div>
+  <div id="connection-banner" class="offline-banner" role="alert" hidden><p id="connection-error"></p><button id="retry-connection" class="small-switch">Повторить загрузку</button></div>
+
   <section class="page shown" id="page-home" aria-label="Главная">
     <div class="section-overline"><span>Сегодня</span><span id="today-date"></span></div>
     <article class="work-card">
-      <div class="work-card-top"><span id="shift-label" class="state-pill"><span class="dot"></span>Смена не начата</span><span class="card-kicker">РАБОЧЕЕ ВРЕМЯ</span></div>
+      <div class="work-card-top"><span id="shift-label" class="state-pill"><span class="dot"></span>Смена не начата</span><span class="card-kicker">ВРЕМЯ С НАЧАЛА</span></div>
       <div class="time-display" id="live-time" aria-live="off">00:00:00</div>
       <p class="muted" id="shift-subtitle">Начни смену одним нажатием</p>
       <div class="shift-meta">
@@ -58,9 +61,10 @@
 
   <section class="page" id="page-calendar" aria-label="Календарь">
     <div class="section-heading space-between"><div><p class="eyebrow">РАСПИСАНИЕ</p><h2>Календарь</h2></div><div class="month-switcher"><button id="month-prev" aria-label="Предыдущий месяц">‹</button><span id="calendar-month"></span><button id="month-next" aria-label="Следующий месяц">›</button></div></div>
+    <label class="month-picker">Перейти к месяцу<input type="month" id="month-jump" min="2000-01" max="2100-12" aria-label="Выбрать месяц и год"></label>
     <article class="calendar-card">
       <div class="weekday-grid"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
-      <div id="calendar-grid" class="date-grid" role="grid" aria-label="Календарь рабочего времени"></div>
+      <div id="calendar-grid" class="date-grid" role="group" aria-label="Календарь рабочего времени"></div>
       <div class="legend"><span><i class="legend-dot worked"></i>Работал</span><span><i class="legend-dot planned"></i>План</span><span><i class="legend-dot off"></i>Выходной</span></div>
     </article>
     <div class="section-heading"><h2 id="day-heading">Выбранный день</h2></div>
@@ -76,12 +80,15 @@
       <span class="subline" id="salary-hours">— часов</span>
       <div class="salary-stats"><div><span>За часы</span><strong id="salary-base">—</strong></div><div><span>Доплаты и удержания</span><strong id="salary-extra">—</strong></div></div>
     </article>
+    <div class="section-heading"><h2>За часы · две части месяца</h2></div>
+    <div id="salary-periods" class="metrics"></div>
     <div class="section-heading"><h2>Рабочие часы · 6 недель</h2></div>
     <article class="chart-card"><div id="weekly-chart" class="bar-chart" role="img" aria-label="Отработанные часы за шесть недель"></div></article>
     <div class="section-heading"><h2>Начисления и поступления</h2></div>
     <article class="small-card"><div class="side-icon gold">₽</div><div class="grow"><strong>Получено</strong><p>Суммы, которые внесены вручную</p></div><strong id="salary-received">—</strong></article>
     <article class="small-card"><div class="side-icon">＋</div><div class="grow"><strong>Премии и доплаты</strong><p>Не смешиваются с почасовой ставкой</p></div><strong id="salary-bonuses">—</strong></article>
     <article class="small-card"><div class="side-icon amber">−</div><div class="grow"><strong>Удержания</strong><p>Без автоматического расчёта налогов</p></div><strong id="salary-deductions">—</strong></article>
+    <article class="small-card"><div class="side-icon">↩</div><div class="grow"><strong>Возмещения</strong><p>Отдельно от оплаты рабочих часов</p></div><strong id="salary-reimbursements">—</strong></article>
     <p class="footnote">Расчёт справочный, не заменяет ведомость работодателя.</p>
   </section>
 
