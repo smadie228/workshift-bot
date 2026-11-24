@@ -52,6 +52,12 @@ def connect(path=None):
     ensure_history(db)
     from workflows import ensure as ensure_workflows
     ensure_workflows(db)
+    from planning import ensure as ensure_planning
+    from revisions import ensure as ensure_revisions
+    ensure_planning(db)
+    ensure_revisions(db)
+    from actual_day import ensure as ensure_actual_days
+    ensure_actual_days(db)
     return db
 
 def now():
@@ -88,6 +94,42 @@ def log(db, kind, shift_id=None, details=None):
     db.execute("INSERT INTO events(event_utc,kind,shift_id,details) VALUES(?,?,?,?)",
                (iso(now()), kind, shift_id, json.dumps(details or {}, ensure_ascii=False)))
 
+def _automatic_break_note(minutes):
+    """Record the assumption on newly opened shifts, never claim a measured break."""
+    return json.dumps({"break_policy":"automatic_default","initial_minutes":minutes},
+                      ensure_ascii=False, separators=(',', ':'))
+
+
+def skip_unfitting_automatic_break(db, shift, end_at):
+    """For a newly auto-deducted break longer than the shift, use zero instead.
+
+    Historical/manual totals and tracked breaks are left unchanged. Called only
+    under the same write transaction as closing the shift.
+    """
+    try:
+        note=json.loads(shift["note"] or '{}')
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(note, dict) or note.get("break_policy")!="automatic_default":
+        return False
+    minutes=shift["break_minutes"]
+    if type(minutes) is not int or minutes<=0 or note.get("initial_minutes")!=minutes:
+        return False
+    elapsed=(end_at-datetime.fromisoformat(shift["start_utc"])).total_seconds()
+    if elapsed>minutes*60:
+        return False
+    if db.execute("SELECT 1 FROM tracked_break_shifts WHERE shift_id=?",(shift["id"],)).fetchone():
+        return False
+    if db.execute("SELECT 1 FROM break_sessions WHERE shift_id=?",(shift["id"],)).fetchone():
+        return False
+    db.execute("UPDATE shifts SET break_minutes=0,updated_utc=? WHERE id=?",
+               (iso(end_at),shift["id"]))
+    log(db,"automatic_break_skipped",shift["id"],
+        {"assumed_minutes":minutes,"applied_minutes":0,
+         "reason":"shift_not_longer_than_standard_break"})
+    return True
+
+
 def toggle(db, update_id, time=None, *, manage_transaction=True):
     """Атомарный переход + идемпотентность Telegram update_id."""
     at = time or now()
@@ -109,13 +151,17 @@ def toggle(db, update_id, time=None, *, manage_transaction=True):
                 raise ValueError("Время окончания не может предшествовать приходу")
             if (at-start).total_seconds()>24*3600:
                 raise ValueError("Смена открыта дольше 24 часов. Укажи корректное время ухода через «Исправить».")
+            skip_unfitting_automatic_break(db,r,at)
             db.execute("UPDATE shifts SET end_utc=?,updated_utc=? WHERE id=?",
                        (iso(at), iso(at), r["id"]))
             action, sid = "out", r["id"]
         else:
+            from actual_day import clear_for_work
+            clear_for_work(db, local_day(iso(at)))
+            minutes=default_break(db)
             cur = db.execute(
-                "INSERT INTO shifts(start_utc,break_minutes,created_utc,updated_utc) VALUES(?,?,?,?)",
-                (iso(at), default_break(db), iso(at), iso(at)))
+                "INSERT INTO shifts(start_utc,break_minutes,created_utc,updated_utc,note) VALUES(?,?,?,?,?)",
+                (iso(at), minutes, iso(at), iso(at), _automatic_break_note(minutes)))
             action, sid = "in", cur.lastrowid
         log(db, action, sid, {"telegram_update_id": update_id, "at": iso(at)})
         db.execute("INSERT INTO processed_updates(update_id,event_utc) VALUES(?,?)",
@@ -192,7 +238,7 @@ def set_office(db, day, hours, source="office"):
 def parse_local_datetime(day, hhmm):
     return datetime.strptime(f"{day} {hhmm}", "%Y-%m-%d %H:%M").replace(tzinfo=TZ).astimezone(UTC)
 
-def corrected_shift(db, day, start_hhmm, end_hhmm, minutes=None, sid=None):
+def corrected_shift(db, day, start_hhmm, end_hhmm, minutes=None, sid=None, *, expected_revision=None):
     start = parse_local_datetime(day, start_hhmm)
     end = parse_local_datetime(day, end_hhmm)
     if end <= start:
@@ -207,6 +253,10 @@ def corrected_shift(db, day, start_hhmm, end_hhmm, minutes=None, sid=None):
         raise ValueError("Проверь перерыв")
     db.execute("BEGIN IMMEDIATE")
     try:
+        if sid is not None and expected_revision is not None:
+            from actual_shift import shift_revision
+            if shift_revision(db,sid)!=expected_revision:
+                raise ValueError("Смена изменилась после открытия формы. Начни исправление заново.")
         overlap = db.execute("""SELECT id FROM shifts WHERE start_utc < ?
              AND (end_utc IS NULL OR end_utc > ?) AND (? IS NULL OR id != ?)
              LIMIT 1""",(iso(end),iso(start),sid,sid)).fetchone()
@@ -217,6 +267,8 @@ def corrected_shift(db, day, start_hhmm, end_hhmm, minutes=None, sid=None):
                                   (iso(parse_local_datetime(day,"00:00")), iso(parse_local_datetime(day,"00:00")+timedelta(days=1)))).fetchall()
             if existing:
                 raise ValueError("В этот день уже есть смена. Используй /fix с номером смены.")
+            from actual_day import clear_for_work
+            clear_for_work(db, day)
             cur = db.execute("""INSERT INTO shifts(start_utc,end_utc,break_minutes,origin,created_utc,updated_utc)
                 VALUES(?,?,?,'manual',?,?)""", (iso(start),iso(end),brk,iso(now()),iso(now())))
             sid = cur.lastrowid
@@ -240,12 +292,16 @@ def corrected_shift(db, day, start_hhmm, end_hhmm, minutes=None, sid=None):
         raise
 
 
-def close_open_shift(db,sid,end_hhmm,break_minutes=None):
+def close_open_shift(db,sid,end_hhmm,break_minutes=None,*,expected_revision=None):
     """Close a forgotten active shift with an audited, owner-confirmed time."""
     db.execute("BEGIN IMMEDIATE")
     try:
         row=db.execute("SELECT * FROM shifts WHERE id=? AND end_utc IS NULL",(sid,)).fetchone()
         if not row:raise ValueError("Смена уже закрыта или не найдена")
+        if expected_revision is not None:
+            from actual_shift import shift_revision
+            if shift_revision(db,sid)!=expected_revision:
+                raise ValueError("Смена изменилась после открытия формы. Начни исправление заново.")
         from workflows import active_break
         if active_break(db,sid):raise ValueError("Сначала закрой текущий перерыв.")
         start=datetime.fromisoformat(row["start_utc"])

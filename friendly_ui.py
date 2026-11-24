@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 from core import DATA_DIR
 import workflows
+from ledger import month_ledger, parse_month, month_title
 
 def kb(rows):
     return InlineKeyboardMarkup([[InlineKeyboardButton(text,callback_data=data) for text,data in row] for row in rows])
@@ -39,88 +40,153 @@ def shift_line(s):
     return f"• <b>{stamp}</b> · {started:%H:%M}–{ended:%H:%M} · {duration(paid_hours(s))}{origin}"
 
 def home(db):
-    cur=datetime.now(TZ).strftime("%Y-%m")
-    current=totals(db,cur)
-    active=open_shift(db)
-    pause=workflows.break_status(db)
+    month=datetime.now(TZ).strftime("%Y-%m")
+    data=month_ledger(db,month)
+    total=data["summary"]
+    active=open_shift(db);pause=workflows.break_status(db)
     risk=workflows.issues(db)
+    status="Смена не начата"
     if active:
         started=read_time(active["start_utc"])
-        gross=max(0,(datetime.now(TZ)-started).total_seconds()/3600)
-        status=(f"☕ <b>Перерыв с {read_time(pause['break_started_utc']):%H:%M}</b>"
-                if pause["on_break"] else
-                f"🟢 <b>На работе с {started:%H:%M}</b>")
-        clock=f"\n⏳ С начала смены: {duration(gross)}"
-    else:
-        status="⚪ Сейчас смена не начата"
-        clock=""
-    text=(f"🏠 <b>Мои смены</b>\n\n"
-          f"{status}{clock}\n\n"
-          f"📅 {month_name(cur)} · {current['shifts']} закрытых смен\n"
-          f"⏱ Отработано: <b>{duration(current['hours'])}</b>\n"
-          f"💰 Начислено: <b>{money(current['earnings'])}</b>"
-          +(f"\n⚠️ Проверить: {len(risk)} записей" if risk else "")
-          +"\n\nОсновная кнопка прихода/ухода — внизу.")
+        status=(f"☕ Перерыв с {read_time(pause['break_started_utc']):%H:%M}"
+                if pause["on_break"] else f"🟢 На работе с {started:%H:%M}")
+        status+=f" · с начала {duration(max(0,(datetime.now(TZ)-started).total_seconds()/3600))}"
+    text=(f"<b>Мои смены</b>\n{status}\n\n"
+          f"<b>{month_name(month)}</b>\n"
+          f"{duration(total['hours'])} · {total['shifts']} закрытых смен\n"
+          f"За часы <b>{money(total['earned'])}</b>\n\n"
+          "Приход и уход — большая кнопка внизу.\n"
+          "В табеле можно открыть любой день и проверить расчёт.")
     rows=[]
-    if pause["on_break"]:
-        rows.append([("▶️ Закончить перерыв","pause:end")])
-    elif active:
-        rows.append([("☕ Начать перерыв","pause:start")])
-    rows.extend([
-      [("💰 Зарплата","ui:pay"),("📅 История","ui:shifts")],
-      [("🕒 Неделя","ui:week"),("🗓 Календарь","cal:"+cur)],
-      [("📋 Мой план","ui:plan"),("📂 Отчёты","ui:reports")],
-      [("🏢 Сверка","ui:office"),("⚠️ Проверка","ui:issues")],
-      [("💵 Доплаты","ui:adjustments"),("⚙️ Настройки","ui:settings")],
-      [("🧭 Помощник","ui:assistant")]
-    ])
+    if active and pause["on_break"]:
+        rows.append([("▶️ Завершить ранее начатый перерыв","pause:end")])
+    rows.extend([[("📋 Табель",f"ledger:{month}:0:all"),("💰 Деньги",f"month:{month}")],
+                 [("📥 Отчёт за месяц",f"reports:{month}"),("⋯ Ещё","ui:more")]])
+    if risk:rows.append([(f"⚠️ Проверить записи · {len(risk)}","ui:issues")])
     return text,kb(rows)
 
 def pay(db,month=None):
     month=month or datetime.now(TZ).strftime("%Y-%m")
-    t=totals(db,month);a=totals(db,month,1);b=totals(db,month,2)
-    got=payment_totals(db,month)
-    adj=workflows.adjustment_totals(db,month)
-    expected=t["earnings"]+adj["net_adjustment"]
-    text=(f"💰 <b>Зарплата · {month_name(month)}</b>\n\n"
-          f"⏱ {duration(t['hours'])} · {t['shifts']} закрытых смен\n"
-          f"За часы: <b>{money(t['earnings'])}</b>\n"
-          f"① 1–15: {money(a['earnings'])}\n"
-          f"② 16–конец: {money(b['earnings'])}\n\n"
-          f"🎁 Премии и доплаты: +{money(adj['bonus']+adj['allowance'])}\n"
-          f"🚗 Возмещения: +{money(adj['reimbursement'])}\n"
-          f"➖ Удержания: −{money(adj['deduction'])}\n"
-          f"🧮 Сумма записей: <b>{money(expected)}</b>\n"
-          f"💳 Отмечено поступлений: <b>{money(sum(got.values()))}</b>\n\n"
-          "<i>Без самостоятельного расчёта налогов. Ведомость работодателя может отличаться.</i>")
-    y,m=map(int,month.split("-"))
-    previous=f"{y-1 if m==1 else y:04d}-{12 if m==1 else m-1:02d}"
-    following=f"{y+1 if m==12 else y:04d}-{1 if m==12 else m+1:02d}"
+    data=month_ledger(db,month);summary=data["summary"];first,second=data["periods"]
+    text=(f"<b>Деньги · {month_title(month)}</b>\n\n"
+          f"Начислено: <b>{money(summary['total'])}</b>\n"
+          f"Получено: <b>{money(summary['received'])}</b>\n\n"
+          f"За часы: {money(summary['earned'])}\n"
+          f"{duration(summary['hours'])} · {summary['shifts']} закрытых смен\n"
+          f"Корректировки: {money(summary['additional']['net_adjustment'])}\n\n"
+          f"<b>За часы по частям месяца</b>\n"
+          f"1–15: {money(first['earnings'])}\n"
+          f"16–конец: {money(second['earnings'])}")
+    future=data['forecast']
+    if future['future_shifts']:
+        text+=(f"\n\nПлан впереди: +{money(future['future_pay'])} · {future['future_shifts']} смен."
+               "\n<i>Это оценка, не начисленные деньги.</i>")
+    text+="\n\n<i>Налоги и задолженность автоматически не рассчитываются.</i>"
     return text,kb([
-       [("◀️ Месяц",f"month:{previous}"),("Месяц ▶️",f"month:{following}")],
-       [("💵 Доплаты и удержания","ui:adjustments")],
-       [("💳 Записать поступление","fin:new:payment")],
-       [("📥 Скачать Excel","file:main"),("🏠 Главная","ui:home")]])
+      [("‹ Месяц",f"month:{_adjacent_month(month,-1)}"),("Месяц ›",f"month:{_adjacent_month(month,1)}")],
+      [("Как рассчитано",f"calc:{month}"),("Табель",f"ledger:{month}:0:all")],
+      [("Записать поступление","fin:new:payment"),("Доплаты","ui:adjustments")],
+      [("📥 Этот месяц",f"file:month:{month}"),("Главная","ui:home")]])
+
+
+def calculation(db,month):
+    data=month_ledger(db,month);summary=data['summary'];extra=summary['additional']
+    text=f"<b>Расчёт · {month_title(month)}</b>\n\n"
+    for rate in data['rates'][:20]:
+        text+=f"{duration(rate['hours'])} × {money(rate['rate'])}/ч = <b>{money(rate['earned'])}</b>\n"
+    if not data['rates']:text+="Завершённых смен нет.\n"
+    text+=(f"\nЗа часы: {money(summary['earned'])}\n"
+           f"Премии и доплаты: +{money(extra['bonus']+extra['allowance'])}\n"
+           f"Возмещения: +{money(extra['reimbursement'])}\n"
+           f"Удержания: −{money(extra['deduction'])}\n"
+           f"<b>Итого: {money(summary['total'])}</b>\n\n"
+           "Применяется ставка на дату прихода. Сумма округляется по каждой смене; время на экране — до минуты.\n"
+           "Поступления не уменьшают начисления: это отдельный журнал.")
+    future=data['forecast']
+    if future['future_shifts']:
+        text+=(f"\n\n<b>Отдельный прогноз</b>\n{duration(future['future_hours'])} · {money(future['future_pay'])}. "
+               f"Оценочный перерыв {future['assumed_break_minutes']} мин/смена. Открытая смена и прошлые пропуски исключены.")
+    return text,kb([[("Разбор по дням",f"ledger:{month}:0:all")],[("‹ Деньги",f"month:{month}"),("📥 Отчёт",f"file:month:{month}")]])
 
 def history(db):
     rows=shifts(db,limit=6)
     text="📅 <b>Последние смены</b>\n\n"
     text+="\n".join(shift_line(s) for s in rows) if rows else "Пока нет закрытых смен."
-    text+="\n\n<i>Полная история — в книге Excel.</i>"
+    text+="\n\n<i>Открой табель для просмотра по дням. Для скачивания доступен отчёт за выбранный месяц.</i>"
     return text,kb([
-      [("🗓 Календарь","cal:"+datetime.now(TZ).strftime("%Y-%m")),
-       ("📆 По месяцам","hist:"+datetime.now(TZ).strftime("%Y-%m")+":0")],
-      [("📥 Все смены в Excel","file:main")],
+      [("📋 Табель","ledger:"+datetime.now(TZ).strftime("%Y-%m")+":0:all"),
+       ("🗓 Календарь","cal:"+datetime.now(TZ).strftime("%Y-%m"))],
+      [("📆 По месяцам","hist:"+datetime.now(TZ).strftime("%Y-%m")+":0"),("📥 Отчёты","ui:reports")],
       [("✏️ Исправления","ui:edit"),("🏠 Главная","ui:home")]])
 
-def report_menu(db):
-    return ("📂 <b>Отчёты</b>\n\n"
-            "Выбери нужный файл. Он придёт прямо в этот чат — с заголовками, цветами и удобными вкладками.\n\n"
-            "Исходные данные остаются закрытыми, доступ — только у владельца."),kb([
-      [("📊 Зарплата и все смены","file:main")],
-      [("🗓 План и выходные","file:plan"),("🏢 Сверка с офисом","file:office")],
-      [("📸 Отметки из чата","file:evidence"),("📚 Источники","file:sources")],
-      [("🏠 Главная","ui:home")]])
+def report_menu(db,month=None):
+    month=month or datetime.now(TZ).strftime("%Y-%m")
+    data=month_ledger(db,month);summary=data["summary"]
+    text=(f"<b>Отчёт · {month_title(month)}</b>\n\n"
+          f"{summary['shifts']} закрытых смен · {duration(summary['hours'])}\n"
+          f"За часы: <b>{money(summary['earned'])}</b>\n\n"
+          "В одном файле: <b>Обзор → Табель → Смены → Деньги</b>.\n"
+          "Все дни месяца, план рядом с фактом, расшифровка по ставкам и итоги по фильтру.\n\n"
+          "<i>Файл — срез на момент скачивания. Правки Excel не изменяют записи бота.</i>")
+    return text,kb([
+      [("‹ Месяц",f"reports:{_adjacent_month(month,-1)}"),("Месяц ›",f"reports:{_adjacent_month(month,1)}")],
+      [("Excel за месяц",f"file:month:{month}"),("PDF за месяц",f"file:pdf:{month}")],
+      [("Годовой обзор",f"year:{month[:4]}")],
+      [("📋 Посмотреть в чате",f"ledger:{month}:0:all")],
+      [("Полный архив и источники","ui:exports"),("Главная","ui:home")]])
+
+
+def exports_menu(db):
+    return ("<b>Архив и первичные данные</b>\n\n"
+            "Полная книга содержит все месяцы, ставки и журнал. Отдельные файлы нужны для подробной проверки источников.\n\n"
+            "Для обычного просмотра удобнее отчёт за один месяц."),kb([
+      [("📚 Полная книга за все месяцы","file:main")],
+      [("План и выходные","file:plan"),("Сверка с офисом","file:office")],
+      [("Исходные строки","file:sources"),("Отметки из чата","file:evidence")],
+      [("‹ Отчёт за месяц","ui:reports"),("Главная","ui:home")]])
+
+
+def more(db):
+    return ("<b>Ещё</b>\n\nПланирование, проверка и настройки. Личные смены, офисный табель и поступления сохраняются отдельно."),kb([
+      [("Повторяющийся график","series:home"),("История и отмена","audit:0")],
+      [("Годовая аналитика","year:"+str(datetime.now(TZ).year))],
+      [("🗓 План","ui:plan"),("🏢 Офисный табель","ui:office")],
+      [("💵 Доплаты","ui:adjustments"),("✏️ Исправить время","ui:edit")],
+      [("🕒 Неделя","ui:week"),("⚙️ Настройки","ui:settings")],
+      [("📚 Архив","ui:exports"),("🧭 Подсказки","ui:assistant")],
+      [("Главная","ui:home")]])
+
+
+def table_view(db,month,page=0,filter_name="all"):
+    data=month_ledger(db,month)
+    if filter_name not in ("all","worked","review"):raise ValueError("Неверный фильтр")
+    relevant=[r for r in data["days"] if r["records"] or r["plan"] or r["office_hours"] is not None]
+    if filter_name=="worked":relevant=[r for r in relevant if r["closed_shifts"]]
+    elif filter_name=="review":relevant=[r for r in relevant if r["open"] or r["status"]=="missing" or r["comparison"]=="difference"]
+    pages=max(1,(len(relevant)+5)//6);page=max(0,min(int(page),pages-1));shown=relevant[page*6:page*6+6]
+    text=f"<b>Табель · {month_title(month)}</b>\n"
+    text+=f"Факт: {duration(sum(r['hours'] or 0 for r in relevant))} · {money(sum(r['earnings'] or 0 for r in relevant))}\n\n"
+    buttons=[]
+    for row in shown:
+        stamp=row['day'][8:]+'.'+row['day'][5:7]
+        if row['closed_shifts']:
+            detail=f"{duration(row['hours'])} · {money(row['earnings'])}"
+        elif row['open']:detail="Смена открыта"
+        elif row['plan'] and row['plan']['status']=='shift':detail=f"План {row['plan']['start'] or '—'}–{row['plan']['end'] or '—'}"
+        else:detail=row['status_label']
+        badge="⚠️" if row['comparison']=='difference' or row['status']=='missing' else "🟢" if row['open'] else ""
+        text+=f"<b>{stamp}</b> {badge} · {escape(detail)}\n"
+        buttons.append([(f"{stamp} · разбор дня",'day:'+row['day'])])
+    if not shown:text+="По этому фильтру записей нет.\n"
+    text+=f"\n<i>Страница {page+1}/{pages}. Нажми дату для подробностей. План не входит в итог факта.</i>"
+    rows=[[("Все",f"ledger:{month}:0:all"),("Факт",f"ledger:{month}:0:worked"),("Проверить",f"ledger:{month}:0:review")]]+buttons
+    navigation=[]
+    if page>0:navigation.append(("‹ Дни",f"ledger:{month}:{page-1}:{filter_name}"))
+    if page+1<pages:navigation.append(("Дни ›",f"ledger:{month}:{page+1}:{filter_name}"))
+    if navigation:rows.append(navigation)
+    rows.extend([[("‹ Месяц",f"ledger:{_adjacent_month(month,-1)}:0:{filter_name}"),("Месяц ›",f"ledger:{_adjacent_month(month,1)}:0:{filter_name}")],
+      [("Календарь",f"cal:{month}"),("📥 Этот месяц",f"file:month:{month}")],[("Главная","ui:home")]])
+    return text,kb(rows)
 
 def plan(db):
     rows=workflows.upcoming_plan(db,limit=8)
@@ -133,6 +199,7 @@ def plan(db):
     text+="\n<i>План не прибавляется к фактически отработанным часам.</i>"
     today=datetime.now(TZ).date().isoformat()
     return text,kb([
+      [("Повторяющийся график","series:home"),("Мои серии","series:list")],
       [("🗓 Открыть календарь","cal:"+today[:7])],
       [("➕ Завтра · 16–02","extra:plan:quick:"+(datetime.now(TZ).date()+timedelta(days=1)).isoformat())],
       [("📥 Скачать план","file:plan"),("🏠 Главная","ui:home")]])
@@ -314,7 +381,7 @@ def adjustments_view(db):
       [("💰 Зарплата","ui:pay"),("🏠 Главная","ui:home")]])
 
 
-VIEWS={"home":home,"pay":pay,"shifts":history,"reports":report_menu,
+VIEWS={"more":more,"exports":exports_menu,"home":home,"pay":pay,"shifts":history,"reports":report_menu,
        "plan":plan,"office":office,"sources":sources,"evidence":evidence,
        "settings":settings,"edit":edit,"assistant":assistant,
        "system":system_status,"week":week_card,

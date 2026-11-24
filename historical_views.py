@@ -20,9 +20,9 @@ def source_text(db):
        "Загруженные файлы:",
     ]
     for name in files:
-       if "verified" in name:caption="проверенная версия"
-       elif "early" in name:caption="ранняя версия"
-       else:caption="импортированная версия"
+       if "umnyi" in name:caption="вариант с галочками"
+       elif "chistaya" in name:caption="ранняя версия"
+       else:caption="более заполненная версия ноября"
        lines.append("• "+caption)
     lines.append("\nДля всех исходных строк: /archive")
     return "\n".join(lines)

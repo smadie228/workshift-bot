@@ -14,7 +14,9 @@ def _amount(value):
     try: v=Decimal(str(value).replace(",","."))
     except Exception as e: raise ValueError("Проверь сумму") from e
     if not v.is_finite() or v<=0 or v>Decimal("1000000"):raise ValueError("Сумма вне допустимого диапазона")
-    return v.quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+    result=v.quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+    if result<Decimal("0.01"):raise ValueError("Минимальная сумма — 0,01 ₽")
+    return result
 
 def ensure(db, base_rate=300):
     db.executescript("""
@@ -86,7 +88,7 @@ def schedule_rate(db,value,effective_from=None):
 def add_payment(db,work_month,period,amount,paid_on,note=""):
     from core import log
     if not (len(work_month)==7 and work_month[4]=="-" and work_month[:4].isdigit()):
-        raise ValueError("Формат месяца: 2024-08")
+        raise ValueError("Формат месяца: 2026-11")
     try:
         datetime.strptime(work_month,"%Y-%m")
         datetime.strptime(paid_on,"%Y-%m-%d")

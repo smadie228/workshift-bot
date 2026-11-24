@@ -11,6 +11,8 @@ from core import (connect,config,put_config,now,iso,read_time,TZ,open_shift,togg
                   log,shifts,totals,week_totals,rate,default_break,office_report,
                   set_office,corrected_shift,local_day,DATA_DIR,paid_hours)
 from report import report
+from report_month import monthly_report
+from ledger import parse_month
 from historical_views import source_text, plan_text, pending_office_text, storage_text, screenshot_text
 import friendly_ui
 from report_catalog import EXPORTS as CATALOG_EXPORTS
@@ -21,6 +23,8 @@ import office_upload
 import calendar_views
 import workflows
 import extra_wizard
+import planning_ui
+import completion_ui
 
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -38,9 +42,9 @@ MENU=[
 def kb(db):
     active=open_shift(db)
     items=[[BTN_OUT if active else BTN_IN]]
-    if active:
-        pause=workflows.break_status(db)
-        items.append([BTN_BREAK_END if pause["on_break"] else BTN_BREAK_START])
+    if active and workflows.break_status(db)["on_break"]:
+        # Only recovery for an already-open manual interval; no new pause button.
+        items.append([BTN_BREAK_END])
     return ReplyKeyboardMarkup(items+MENU,resize_keyboard=True,is_persistent=True)
 
 def owner(db):
@@ -84,7 +88,7 @@ async def screen(update,context,name="home",month=None,page=0):
         view=friendly_ui.VIEWS.get(name)
         if not view:
             return
-        text,buttons=view(db,month) if name=="pay" else view(db)
+        text,buttons=view(db,month) if name in ("pay","reports") else view(db)
     if update.callback_query:
         from telegram.error import BadRequest
         try:
@@ -101,7 +105,32 @@ async def send_pretty_file(update,context,key):
     db=context.application.bot_data["db"]
     if not authorized(update,db):
         return await denied(update,context)
-    if key=="main":
+    if key.startswith(("pdf:","yearpdf:")):
+        from report_pdf import monthly_pdf,annual_pdf
+        try:
+            if key.startswith("pdf:"):
+                month=key[4:];parse_month(month);path=monthly_pdf(db,month)
+            else:
+                year=int(key[8:]);path=annual_pdf(db,year)
+            caption="Мои смены · PDF-сводка. Срез на момент формирования; план и поступления разделены."
+        except (ValueError,TypeError):return
+        except Exception:
+            LOG.exception("PDF generation failed")
+            await context.bot.send_message(update.effective_chat.id,"Не удалось подготовить PDF. Записи сохранены; Excel остаётся доступен.")
+            return
+    elif key.startswith("month:"):
+        month=key[6:]
+        try:
+            parse_month(month)
+            path=monthly_report(db,month)
+        except (ValueError,TypeError):
+            return
+        except Exception:
+            LOG.exception("Monthly report preparation failed")
+            await context.bot.send_message(update.effective_chat.id,"Не удалось сформировать отчёт. Записи сохранены; попробуй повторить скачивание.")
+            return
+        caption="📋 "+friendly_ui.month_name(month)+" · обзор, табель, смены и деньги. Срез на момент скачивания."
+    elif key=="main":
         path=sync(db)
         caption="📊 Полная книга: зарплата, месяцы и история изменений"
     else:
@@ -136,7 +165,42 @@ async def inline_action(update,context):
         return await query.answer("Доступ закрыт",show_alert=True)
     await query.answer()
     action=query.data or ""
+    if action.startswith(("cal:","day:","month:","hist:","reports:","ledger:","year:","audit:","edit:new:","edit:day:","edit:fix:","edit:close","fin:new:","extra:plan:","extra:adjust:")):
+        for flow_key in ("series_flow","undo_flow","extra_flow","finance_flow","correction"):
+            context.user_data.pop(flow_key,None)
+        context.user_data["assistant_mode"]=False
     if action=="noop":return
+    if action.startswith(("series:","audit:","undo:","year:")):
+        if action.startswith("series:"):
+            return await planning_ui.callback(update,context,db)
+        return await completion_ui.callback(update,context,db)
+    if action.startswith("calc:"):
+        try:
+            parse_month(action[5:])
+            text,buttons=friendly_ui.calculation(db,action[5:])
+        except ValueError:return
+        from telegram.error import BadRequest
+        try:return await query.edit_message_text(text,reply_markup=buttons,parse_mode="HTML")
+        except BadRequest as exc:
+            if "not modified" not in str(exc).lower():raise
+        return
+    if action.startswith("reports:"):
+        try:parse_month(action[8:])
+        except ValueError:return
+        return await screen(update,context,"reports",action[8:])
+    if action.startswith("ledger:"):
+        try:
+            _,month,page,filter_name=action.split(":")
+            parse_month(month)
+            page=int(page)
+            if not 0<=page<=500:return
+            text,buttons=friendly_ui.table_view(db,month,page,filter_name)
+        except (ValueError,TypeError):return
+        from telegram.error import BadRequest
+        try:return await query.edit_message_text(text,reply_markup=buttons,parse_mode="HTML")
+        except BadRequest as exc:
+            if "not modified" not in str(exc).lower():raise
+        return
     if action.startswith("cal:"):
         try:calendar_views.month_parse(action[4:])
         except ValueError:return
@@ -148,6 +212,8 @@ async def inline_action(update,context):
         except ValueError:return
         return await screen(update,context,"day",action[4:])
     if action.startswith("ui:"):
+        context.user_data.pop("series_flow",None)
+        context.user_data.pop("undo_flow",None)
         context.user_data.pop("extra_flow",None)
         context.user_data.pop("correction",None)
         context.user_data.pop("finance_flow",None)
@@ -165,6 +231,7 @@ async def inline_action(update,context):
     if action.startswith("month:"):
         month=action[6:]
         try:
+            parse_month(month)
             friendly_ui.month_name(month)
         except (ValueError,IndexError):
             return
@@ -173,17 +240,17 @@ async def inline_action(update,context):
         return await pause_action(update,context,action[6:])
     if action.startswith("extra:"):
         outcome=await extra_wizard.callback(update,context,db)
-        if outcome=="saved":sync(db)
+        if outcome=="saved":pass  # Report is generated on demand.
         return
     if action.startswith("file:"):
         return await send_pretty_file(update,context,action[5:])
     if action.startswith("edit:"):
         outcome=await edit_wizard.callback(update,context,db)
-        if outcome=="saved":sync(db)
+        if outcome=="saved":pass  # Report is generated on demand.
         return
     if action.startswith("fin:"):
         outcome=await finance_wizard.callback(update,context,db)
-        if outcome=="saved":sync(db)
+        if outcome=="saved":pass  # Report is generated on demand.
         return
     if action.startswith("helper:"):
         context.user_data["assistant_mode"]=True
@@ -223,6 +290,14 @@ async def started(update,context):
     db=context.application.bot_data["db"]
     if not is_private(update):return
     if authorized(update,db):
+        args=getattr(context,"args",None) or []
+        if args and args[0].startswith("q_"):
+            from quick_routes import open_destination
+            return await open_destination(update,context,args[0])
+        if args and args[0].startswith("b_"):
+            return await extra_wizard.begin_batch_draft(update,context,db,args[0])
+        if args and args[0].startswith("p_"):
+            return await extra_wizard.begin_calendar_draft(update,context,db,args[0])
         await update.message.reply_text(
             "👋 Готово. Кнопка прихода/ухода всегда внизу.\n"
             "Остальные данные — в разделах без ручных команд.",
@@ -280,11 +355,11 @@ async def toggle_action(update,context,mode="toggle"):
                 [("🏠 Главная","ui:home")]]))
         return
     if kind=="duplicate":return await reply(update,db,"Эта отметка уже обработана.")
-    sync(db)
+    # SQLite is authoritative; generate reports only on explicit export.
     if kind=="in":
         await reply(update,db,
             "✅ Приход сохранён · "+friendly_time(s["start_utc"])+
-            f"\n☕ Перерыв: {s['break_minutes']} мин.\n"
+            f"\nПерерыв: {s['break_minutes']} мин (учитывается автоматически).\n"
             "Если время нужно исправить, открой «📅 Смены» → «Исправления».")
     else:
         hours=paid_hours(s)
@@ -302,7 +377,7 @@ async def summary(update,context):
     if not authorized(update,db):return await denied(update,context)
     month=context.args[0] if context.args else datetime.now(TZ).strftime("%Y-%m")
     try:month=safe_month(month)
-    except ValueError:return await reply(update,db,"Формат: /month 2024-07")
+    except ValueError:return await reply(update,db,"Формат: /month 2026-11")
     return await screen(update,context,"pay",month)
 
 async def history(update,context):
@@ -315,17 +390,17 @@ async def office(update,context):
     db=context.application.bot_data["db"]
     if not authorized(update,db):return await denied(update,context)
     if len(context.args)!=2:
-        return await reply(update,db,"Сверка: /office 2024-07-12 9.23\n"
+        return await reply(update,db,"Сверка: /office 2026-11-12 9.23\n"
             "Часы с офисного табеля вводятся отдельно. «9.23» — десятичные часы, «9:23» — часы и минуты.")
     try:
         day,raw=context.args
         datetime.strptime(day,"%Y-%m-%d")
         hrs=(int(raw.split(":")[0])+int(raw.split(":")[1])/60) if ":" in raw else float(raw.replace(",","."))
         set_office(db,day,hrs)
-        sync(db)
+        # Report is generated on demand.
         return await reply(update,db,f"Офис: {day} — {hrs:.3f} ч. Данные бота не менялись.")
     except (ValueError,TypeError):
-        return await reply(update,db,"Проверь дату и часы: /office 2024-07-12 9.23")
+        return await reply(update,db,"Проверь дату и часы: /office 2026-11-12 9.23")
 
 async def comparison(update,context):
     return await screen(update,context,"office")
@@ -344,8 +419,8 @@ async def edit_help(update,context):
     if not authorized(update,db):return await denied(update,context)
     await reply(update,db,"✏️ Исправление времени\n"
         "1. /history — посмотреть номер смены.\n"
-        "2. /fix 12 2024-07-12 16:08 02:10 30 — исправить смену №12.\n"
-        "3. /manual 2024-07-12 16:08 02:10 30 — добавить пропущенную.\n"
+        "2. /fix 12 2026-11-12 16:08 02:10 30 — исправить смену №12.\n"
+        "3. /manual 2026-11-12 16:08 02:10 30 — добавить пропущенную.\n"
         "После полуночи дата ухода определяется автоматически.\n"
         "Изменения сохраняются в журнале.")
 
@@ -360,7 +435,7 @@ async def edit(update,context):
         else:
             if len(a) not in (4,5):return await edit_help(update,context)
             sid=corrected_shift(db,a[1],a[2],a[3],int(a[4]) if len(a)==5 else None,int(a[0]))
-        sync(db)
+        # Report is generated on demand.
         await reply(update,db,f"Исправление записано для смены №{sid}. История изменений сохранена.")
     except (ValueError,TypeError) as exc:await reply(update,db,"Ошибка: "+str(exc))
 
@@ -381,7 +456,7 @@ async def break_time(update,context):
         db.execute("UPDATE shifts SET break_minutes=?,updated_utc=? WHERE id=?",(mins,iso(now()),sid))
         log(db,"break",sid,{"old":old,"new":mins})
         db.execute("COMMIT")
-        sync(db)
+        # Report is generated on demand.
         await reply(update,db,f"Смена №{sid}: перерыв {mins} мин.")
     except (ValueError,TypeError) as exc:await reply(update,db,"Ошибка: "+str(exc))
 
@@ -411,7 +486,7 @@ async def changed_setting(update,context):
             from finance import schedule_rate
             when=schedule_rate(db,value)
             msg=f"Новая ставка {value:.2f} ₽/час действует с {when}, предыдущие начисления не меняются."
-        sync(db)
+        # Report is generated on demand.
         await reply(update,db,"✅ "+msg)
     except (ValueError,IndexError) as exc:await reply(update,db,"Ошибка: "+str(exc))
 
@@ -470,6 +545,11 @@ async def on_text(update,context):
     if not authorized(update,db):return await denied(update,context)
     text=update.message.text.strip()
     all_buttons={name for line in MENU for name in line}|{BTN_IN,BTN_OUT,BTN_BREAK_START,BTN_BREAK_END}
+    if context.user_data.get("series_flow"):
+        if text not in all_buttons:
+            if await planning_ui.text(update,context,db):return
+        else:
+            context.user_data.pop("series_flow",None)
     if context.user_data.get("extra_flow"):
         if text not in all_buttons:
             if await extra_wizard.text(update,context):return
@@ -522,7 +602,7 @@ def main():
     if not token:
         raise SystemExit("TELEGRAM_BOT_TOKEN is not set; bot is staged but not started.")
     db=connect()
-    sync(db)
+    # SQLite is authoritative; generate reports only on explicit export.
     app=ApplicationBuilder().token(token).concurrent_updates(False).build()
     app.bot_data["db"]=db
     commands=[
@@ -535,7 +615,7 @@ def main():
         ("break",break_time),("settings",settings),("rate",changed_setting),
         ("defaultbreak",changed_setting)]
     for name,handler in commands:app.add_handler(CommandHandler(name,handler))
-    app.add_handler(CallbackQueryHandler(inline_action,pattern=r"^(noop$|ui:|month:|hist:|cal:|day:|pause:|extra:|file:|edit:|fin:|helper:|office:)"))
+    app.add_handler(CallbackQueryHandler(inline_action,pattern=r"^(noop$|series:|audit:|undo:|year:|ui:|calc:|reports:|ledger:|month:|hist:|cal:|day:|pause:|extra:|file:|edit:|fin:|helper:|office:)"))
     app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE,received_photo))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE,received_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,on_text))

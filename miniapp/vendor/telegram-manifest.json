@@ -1,0 +1,15 @@
+{
+  "project": "TelegramMessenger/TGMiniAppsJsSDK",
+  "commit": "e086c60734519ff816c3af5cf95def3edd7d12fc",
+  "license": "MIT",
+  "files": {
+    "telegram-web-app.js": {
+      "source": "https://raw.githubusercontent.com/TelegramMessenger/TGMiniAppsJsSDK/e086c60734519ff816c3af5cf95def3edd7d12fc/telegram-web-app.js",
+      "sha256": "fd5e505fa90dba9312fdc2fa679f5e340c2f38a7fddbf1db8b53b26b32139159"
+    },
+    "TELEGRAM-LICENSE.txt": {
+      "source": "https://raw.githubusercontent.com/TelegramMessenger/TGMiniAppsJsSDK/e086c60734519ff816c3af5cf95def3edd7d12fc/LICENSE",
+      "sha256": "1b6cf72927d4a211b66ca409e001dcaa85d29c79d04e4470ff0ced87073d483f"
+    }
+  }
+}

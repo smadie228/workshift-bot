@@ -64,7 +64,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         u,q=self.upd(f"extra:plan:quick:{future}")
         await bot.inline_action(u,self.ctx)
         self.assertEqual(workflows.plan_day(self.db,future),None)
-        u,q=self.upd("extra:save")
+        u,q=self.upd("extra:save:"+self.ctx.user_data["extra_flow"]["_confirmation_token"])
         await bot.inline_action(u,self.ctx)
         self.assertEqual(workflows.plan_day(self.db,future)["status"],"shift")
         self.assertEqual(workflows.plan_day(self.db,future)["start"],"16:00")
@@ -85,7 +85,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         u,m=self.msg("сегодня")
         await extra_wizard.text(u,self.ctx)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM pay_adjustments").fetchone()[0],0)
-        u,q=self.upd("extra:save")
+        u,q=self.upd("extra:save:"+self.ctx.user_data["extra_flow"]["_confirmation_token"])
         await bot.inline_action(u,self.ctx)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM pay_adjustments").fetchone()[0],1)
 

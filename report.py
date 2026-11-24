@@ -11,6 +11,8 @@ from openpyxl.styles import PatternFill, Font
 from core import TZ, DATA_DIR, shifts, local_day, paid_hours, read_time, rate
 from finance import shift_earnings, payment_totals, rate_at
 from workflows import adjustment_totals
+from ledger import available_months
+from report_catalog import finish_table, formula
 from report_catalog import make_sheet, addrow, save, MINT, AMBER, CLOUD
 
 def mname(month):
@@ -34,10 +36,11 @@ def report(db,path=None):
     prev=(current.year-1,12) if current.month==1 else (current.year,current.month-1)
     periods={current.strftime("%Y-%m"),f"{prev[0]:04d}-{prev[1]:02d}"}
     periods.update(grouped)
+    periods.update(available_months(db))
     months=sorted(periods,reverse=True)
 
     overview=make_sheet(wb,"Обзор","МОИ СМЕНЫ · ОТЧЁТ",
-        "Личный учёт зарплаты · Москва · данные офиса и личные отметки хранятся отдельно.",
+        "Срез на "+datetime.now(TZ).strftime("%d.%m.%Y %H:%M")+" МСК. Изменения в Excel не записываются в бот.",
         ["Месяц","Смены","Часы","За часы","1–15 число","16–конец","Поступило","Офисных дней","Корректировки","Расчётный итог"],
         [22,12,14,22,22,22,22,17,23,24])
     for row,month in enumerate(months,7):
@@ -64,9 +67,14 @@ def report(db,path=None):
         chart.width=16;chart.height=7
         chart.add_data(Reference(overview,min_col=4,min_row=6,max_row=6+len(months)),titles_from_data=True)
         chart.set_categories(Reference(overview,min_col=1,min_row=7,max_row=6+len(months)))
-        overview.add_chart(chart,"J6")
+        overview.add_chart(chart,f"A{len(months)+12}")
+        for chart_row in range(len(months)+12,len(months)+28):overview.row_dimensions[chart_row].height=20
+        overview.cell(len(months)+28,1,"Диаграмма показывает только начисления за отработанные часы.")
     overview.auto_filter.ref=f"A6:J{6+len(months)}"
     overview.freeze_panes="B7"
+    finish_table(overview,6+len(months),10)
+    for index,month in enumerate(months,7):
+        overview.cell(index,1).hyperlink="#\'"+mname(month)+"\'!A1"
 
     for month in months:
         ws=make_sheet(wb,mname(month),"РАБОЧЕЕ ВРЕМЯ · "+mname(month).upper(),
@@ -87,7 +95,8 @@ def report(db,path=None):
             for col in (2,3):ws.cell(idx,col).number_format="dd.mm.yyyy hh:mm"
             hrs_cell(ws.cell(idx,5))
             for col in (6,7):money_cell(ws.cell(idx,col))
-        if records:ws.auto_filter.ref=f"A6:I{6+len(records)}"
+        if records:
+            finish_table(ws,6+len(records),9,{4:sum(r["break_minutes"] for r in records),5:sum(paid_hours(r) for r in records if r["end_utc"]),7:sum(shift_earnings(db,r) for r in records if r["end_utc"])})
 
     office_ws=make_sheet(wb,"Сверка с офисом","ОФИСНЫЙ ТАБЕЛЬ ↔ МОИ ЧАСЫ",
         "Подтверждённые офисные часы и предварительные записи не подменяют друг друга. Нечёткое фото не используется для расчёта.",
@@ -98,7 +107,7 @@ def report(db,path=None):
         if s["end_utc"]:measured[local_day(s["start_utc"])]+=paid_hours(s)
     recorded={r["day"]:(r["hours"],r["source"]) for r in db.execute("SELECT day,hours,source FROM office_days")}
     office_days={r["day"] for r in db.execute("SELECT day FROM office_image_days")}
-    dates=sorted(set(recorded)|office_days)
+    dates=sorted(set(recorded)|office_days|set(measured))
     for idx,day in enumerate(dates,7):
         office=recorded.get(day)
         own=measured.get(day)
@@ -169,7 +178,7 @@ def report(db,path=None):
         ("Выплаты","Вносятся как поступления, отдельно от начислений; НДФЛ и авансы не угадываются."),
         ("Сверка","Офисные часы в отдельной таблице. Пока число из офиса не подтверждено — пусто."),
         ("Офисный файл","В чате выбери загрузку XLSX. Сначала сохраняется и проверяется; без подтверждения офисные часы не перезаписываются."),
-        ("Бэкапы","Локальные копии SQLite; дополнительные внешние копии ещё не настроены."),
+        ("Бэкапы","Копии SQLite создаются отдельно от отчёта. Актуальный статус резервирования смотри в настройках."),
         ("Безопасность","Бот закрыт для других Telegram-аккаунтов, файлы не публикуются по ссылкам.")
     ]
     for idx,entry in enumerate(instructions,7):addrow(how,idx,entry,MINT if idx%2 else None)

@@ -46,7 +46,7 @@ class WizardTests(unittest.IsolatedAsyncioTestCase):
         await edit_wizard.text_input(FakeUpdate(text="02:10"),c)
         await edit_wizard.callback(FakeUpdate("edit:mins:30"),c,self.db)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM shifts").fetchone()[0],0)
-        result=await edit_wizard.callback(FakeUpdate("edit:save"),c,self.db)
+        result=await edit_wizard.callback(FakeUpdate("edit:save:"+c.user_data["correction"]["_confirmation_token"]),c,self.db)
         self.assertEqual(result,"saved")
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM shifts").fetchone()[0],1)
         self.assertIsNone(c.user_data.get("correction"))
@@ -54,25 +54,25 @@ class WizardTests(unittest.IsolatedAsyncioTestCase):
     async def test_payment_wizard_requires_confirmation(self):
         c=self.context
         await finance_wizard.callback(FakeUpdate("fin:new:payment"),c,self.db)
-        await finance_wizard.text(FakeUpdate(text="2024-07"),c)
+        await finance_wizard.text(FakeUpdate(text="2026-10"),c)
         await finance_wizard.callback(FakeUpdate("fin:period:1"),c,self.db)
         await finance_wizard.text(FakeUpdate(text="22.10"),c)
         await finance_wizard.text(FakeUpdate(text="1999.95"),c)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM received_payments").fetchone()[0],0)
-        await finance_wizard.callback(FakeUpdate("fin:save"),c,self.db)
+        await finance_wizard.callback(FakeUpdate("fin:save:"+c.user_data["finance_flow"]["_confirmation_token"]),c,self.db)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM received_payments").fetchone()[0],1)
-        self.assertAlmostEqual(finance.payment_totals(self.db,"2024-07")[1],1999.95)
+        self.assertAlmostEqual(finance.payment_totals(self.db,"2026-10")[1],1999.95)
 
     async def test_rate_wizard_preserves_historical_pay(self):
         c=self.context
-        core.corrected_shift(self.db,"2024-07-05","16:00","02:00",30)
-        past=core.totals(self.db,"2024-07")["earnings"]
+        core.corrected_shift(self.db,"2026-10-05","16:00","02:00",30)
+        past=core.totals(self.db,"2026-10")["earnings"]
         await finance_wizard.callback(FakeUpdate("fin:new:rate"),c,self.db)
         await finance_wizard.text(FakeUpdate(text="350"),c)
         self.assertEqual(len(finance.planned_rates(self.db)),0)
-        await finance_wizard.callback(FakeUpdate("fin:save"),c,self.db)
+        await finance_wizard.callback(FakeUpdate("fin:save:"+c.user_data["finance_flow"]["_confirmation_token"]),c,self.db)
         self.assertEqual(len(finance.planned_rates(self.db)),1)
-        self.assertEqual(core.totals(self.db,"2024-07")["earnings"],past)
+        self.assertEqual(core.totals(self.db,"2026-10")["earnings"],past)
 
     async def test_cancel_does_not_write(self):
         c=self.context

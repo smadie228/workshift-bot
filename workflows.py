@@ -34,6 +34,9 @@ def ensure(db):
         created_utc TEXT NOT NULL,
         updated_utc TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS plan_clears(
+        day TEXT PRIMARY KEY, created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS pay_adjustments(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         day TEXT NOT NULL,
@@ -134,8 +137,14 @@ def stop_break(db,at=None,*,manage_transaction=True):
         if manage_transaction and db.in_transaction:db.execute("ROLLBACK")
         raise
 
+def is_plan_cleared(db,day):
+    _validate_day(day)
+    return db.execute("SELECT 1 FROM plan_clears WHERE day=?",(day,)).fetchone() is not None
+
+
 def plan_day(db,day):
     _validate_day(day)
+    if is_plan_cleared(db,day):return None
     manual=db.execute("SELECT * FROM plan_days WHERE day=?",(day,)).fetchone()
     if manual:
         return {"day":day,"status":manual["status"],
@@ -148,9 +157,9 @@ def plan_day(db,day):
                 "start":entry["start_time"],"end":entry["end_time"],"source":"import"}
     return None
 
-def set_plan(db,day,status,start_time=None,end_time=None,note=""):
+def set_plan(db,day,status,start_time=None,end_time=None,note="",*,manage_transaction=True,allow_past=False):
     target=_validate_day(day)
-    if target<datetime.now(TZ).date():
+    if target<datetime.now(TZ).date() and allow_past is not True:
         raise ValueError("План можно менять только для сегодняшнего и будущих дней.")
     if status not in ("shift","off"):raise ValueError("Некорректный статус.")
     if len(note)>160:raise ValueError("Слишком длинное примечание.")
@@ -164,9 +173,14 @@ def set_plan(db,day,status,start_time=None,end_time=None,note=""):
         if start_time==end_time:raise ValueError("Приход и уход не могут совпадать.")
     else:
         start_time=end_time=None
-    db.execute("BEGIN IMMEDIATE")
+    if not manage_transaction and not db.in_transaction:
+        raise RuntimeError("An outer write transaction is required")
+    if manage_transaction:db.execute("BEGIN IMMEDIATE")
     try:
         old=plan_day(db,day)
+        previous_manual=db.execute("SELECT * FROM plan_days WHERE day=?",(day,)).fetchone()
+        previous_clear=is_plan_cleared(db,day)
+        db.execute("DELETE FROM plan_clears WHERE day=?",(day,))
         stamp=iso(now())
         db.execute("""INSERT INTO plan_days(day,status,start_time,end_time,note,created_utc,updated_utc)
             VALUES(?,?,?,?,?,?,?)
@@ -175,20 +189,45 @@ def set_plan(db,day,status,start_time=None,end_time=None,note=""):
             end_time=excluded.end_time,note=excluded.note,updated_utc=excluded.updated_utc""",
             (day,status,start_time,end_time,note,stamp,stamp))
         log(db,"plan_change",None,{"day":day,"before":old,"after":{"status":status,
-              "start":start_time,"end":end_time}})
-        db.execute("COMMIT")
+              "start":start_time,"end":end_time},
+              "historical":target<datetime.now(TZ).date(),
+              "previous_manual":dict(previous_manual) if previous_manual else None,
+              "previous_clear":previous_clear})
+        if manage_transaction:db.execute("COMMIT")
         return plan_day(db,day)
     except Exception:
-        db.execute("ROLLBACK")
+        if manage_transaction and db.in_transaction:db.execute("ROLLBACK")
         raise
+
+def clear_plan(db,day,*,manage_transaction=True,allow_past=False):
+    target=_validate_day(day)
+    if target<datetime.now(TZ).date() and allow_past is not True:raise ValueError("Прошедший план не меняется.")
+    if not manage_transaction and not db.in_transaction:
+        raise RuntimeError("An outer write transaction is required")
+    if manage_transaction:db.execute("BEGIN IMMEDIATE")
+    try:
+        before=plan_day(db,day)
+        raw=db.execute("SELECT * FROM plan_days WHERE day=?",(day,)).fetchone()
+        stamp=iso(now())
+        db.execute("INSERT INTO plan_clears VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET updated_utc=excluded.updated_utc",(day,stamp,stamp))
+        db.execute("DELETE FROM plan_days WHERE day=?",(day,))
+        log(db,"plan_change",None,{"day":day,"before":before,"after":None,
+            "operation":"unset","historical":target<datetime.now(TZ).date(),"previous_manual":dict(raw) if raw else None})
+        if manage_transaction:db.execute("COMMIT")
+    except Exception:
+        if manage_transaction and db.in_transaction:db.execute("ROLLBACK")
+        raise
+
 
 def upcoming_plan(db,start=None,limit=14):
     start=start or datetime.now(TZ).date().isoformat()
     _validate_day(start)
-    rows=db.execute("""SELECT day FROM plan_days WHERE day>=?
+    rows=db.execute("""SELECT day FROM (
+        SELECT day FROM plan_days WHERE day>=?
         UNION SELECT day FROM history_source_rows WHERE day>=?
-        AND status IN ('План','Выходной')
-        ORDER BY day LIMIT ?""",(start,start,limit*3)).fetchall()
+        AND status IN ('План','Выходной'))
+        WHERE day NOT IN (SELECT day FROM plan_clears)
+        ORDER BY day LIMIT ?""",(start,start,limit)).fetchall()
     return [p for r in rows if (p:=plan_day(db,r["day"])) is not None][:limit]
 
 def add_adjustment(db,day,category,amount,note=""):
@@ -203,6 +242,7 @@ def add_adjustment(db,day,category,amount,note=""):
     if not value.is_finite() or value<=0 or value>1000000:
         raise ValueError("Сумма должна быть от 0,01 до 1 000 000 ₽.")
     value=value.quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+    if value<Decimal("0.01"):raise ValueError("Минимальная сумма — 0,01 ₽")
     db.execute("BEGIN IMMEDIATE")
     try:
         cur=db.execute("""INSERT INTO pay_adjustments(day,category,amount_rub,note,created_utc)
@@ -254,7 +294,7 @@ def issues(db,reference=None):
     for offset in range(1,8):
         d=(today-timedelta(days=offset)).isoformat()
         plan=plan_day(db,d)
-        if plan and plan["status"]=="shift" and d not in by_day:
+        if plan and plan["status"]=="shift" and d not in by_day and not db.execute("SELECT 1 FROM actual_days_off WHERE day=?",(d,)).fetchone():
             result.append({"level":"review","day":d,
                 "text":"По плану был рабочий день, но фактическая смена не найдена."})
     return result[:20]

@@ -1,0 +1,11 @@
+[Unit]
+Description=Ежедневная резервная копия «Мои смены»
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+AccuracySec=10min
+Unit=workshift-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -35,12 +35,12 @@ def month_view(db,month=None):
     today=datetime.now(TZ).date()
     first=f"{month}-01"
     end=f"{next_month(month,1)}-01"
-    plans=db.execute("""SELECT day,status FROM history_source_rows
-        WHERE day>=? AND day<? AND status IN ('План','Выходной')
-        ORDER BY imported_utc,source""",(first,end)).fetchall()
-    marks={r["day"]:("🟡" if r["status"]=="План" else "🌿") for r in plans}
-    for r in db.execute("SELECT day,status FROM plan_days WHERE day>=? AND day<?",(first,end)):
-        marks[r["day"]]="🌿" if r["status"]=="off" else "🟡"
+    marks={}
+    for daynum in range(1,calendar.monthrange(year,number)[1]+1):
+        key=f"{month}-{daynum:02d}";plan=workflows.plan_day(db,key)
+        if plan:marks[key]="🌿" if plan["status"]=="off" else "🟡"
+    for r in db.execute("SELECT day FROM actual_days_off WHERE day LIKE ?",(month+"-%",)):
+        marks[r["day"]]="🌿"
     actual=shifts(db,month)
     for row in actual:
         marks[local_day(row["start_utc"])]="✅" if row["end_utc"] else "🟢"
@@ -64,14 +64,14 @@ def month_view(db,month=None):
         rows.append(line)
     rows.extend([
         [("📆 История месяца",f"hist:{month}:0")],
-        [("📂 Отчёты","ui:reports"),("🏠 Главная","ui:home")]
+        [("📂 Отчёты",f"reports:{month}"),("🏠 Главная","ui:home")]
     ])
     completed=[s for s in actual if s["end_utc"]]
     total_hours=sum(paid_hours(s) for s in completed)
     text=(f"🗓 <b>Календарь · {MONTHS[number-1].capitalize()} {year}</b>\n\n"
           f"✅ Отработано: <b>{len(completed)} смен</b> · <b>{total_hours:.1f} ч</b>\n"
           f"🟢 открыта · ✅ закрыта · 🟡 план · 🌿 выходной\n\n"
-          "Нажми дату, чтобы посмотреть время и начисления.")
+          "Нажми дату: можно выбрать рабочий день, выходной или изменить время плана.\nФактические отметки остаются отдельно.")
     return text,kbd(rows)
 
 def day_view(db,day):
@@ -84,6 +84,7 @@ def day_view(db,day):
     rows=[s for s in shifts(db,target.strftime("%Y-%m"))
           if local_day(s["start_utc"])==day]
     plan=workflows.plan_day(db,day)
+    actual_off=db.execute("SELECT 1 FROM actual_days_off WHERE day=?",(day,)).fetchone()
     off=db.execute("SELECT hours FROM office_days WHERE day=?",(day,)).fetchone()
     names=("Пн","Вт","Ср","Чт","Пт","Сб","Вс")
     text=f"📅 <b>{target:%d.%m.%Y}</b> · {names[target.weekday()]}\n\n"
@@ -104,10 +105,10 @@ def day_view(db,day):
             else:
                 text+=f"🟢 <b>Открытая смена</b> с {start:%H:%M}\n\n"
     else:
-        text+="За этот день фактических отметок нет.\n\n"
+        text+=("🌿 <b>Факт: выходной</b>\n\n" if actual_off else "За этот день фактических отметок нет.\n\n")
     if plan:
         if plan["status"]=="off":
-            text+="🌿 По импортированному плану: выходной.\n"
+            text+="🌿 План: выходной.\n"
         else:
             text+=(f"🟡 План: {escape(str(plan['start'] or '—'))}"
                    f"–{escape(str(plan['end'] or '—'))}\n")
@@ -123,11 +124,10 @@ def day_view(db,day):
             actions.append([("🔴 Уточнить уход","edit:close")])
     elif target<=datetime.now(TZ).date():
         actions.append([("➕ Добавить пропущенную смену",f"edit:day:{day}")])
-    if target>=datetime.now(TZ).date():
-        actions.extend([
-          [("🟡 План 16–02",f"extra:plan:quick:{day}"),("🌿 Выходной",f"extra:plan:off:{day}")],
-          [("🕒 Другое время",f"extra:plan:custom:{day}")]
-        ])
+    actions.extend([
+      [(("✓ Рабочий" if plan and plan["status"]=="shift" else "🟡 Рабочий день"),f"extra:plan:work:{day}"),(("✓ Выходной" if plan and plan["status"]=="off" else "🌿 Выходной"),f"extra:plan:off:{day}")],
+      [("🕒 Другое время",f"extra:plan:custom:{day}"),("Снять план",f"extra:plan:unset:{day}")]
+    ])
     actions.extend([
         [("◀️ Календарь",f"cal:{target:%Y-%m}")],
         [("📆 История месяца",f"hist:{target:%Y-%m}:0"),("🏠 Главная","ui:home")]

@@ -1,0 +1,12 @@
+{
+  "name": "Apache ECharts",
+  "version": "6.1.0",
+  "source": "https://www.npmjs.com/package/echarts/v/6.1.0",
+  "upstream": "https://echarts.apache.org",
+  "package_integrity": "sha512-q0yaFPggC9FUdsWH4blavRWFmxdrIodbkoKNAjJudAI6CA9gNPxHtV2RcZNEepZVlk4yvBYkOkbk6HIVpIyHZA==",
+  "files": {
+    "ECHARTS-LICENSE.txt": "634293835b43a6dd2094fa39182a3d9a6b9ca43b7fdb9ac354e8037af2a3093a",
+    "ECHARTS-NOTICE.txt": "d491d358344f842685c1b1585970999db65fe30ecf7ef3867af8814f4016c016",
+    "echarts.min.js": "b66b25aeb4df84e33199dc21694014d336d222cbd9deb0e5a7c14bd6aa0d0fd0"
+  }
+}

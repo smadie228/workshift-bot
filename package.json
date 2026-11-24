@@ -7,9 +7,13 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "test:browser": "node scripts/test_browser.cjs"
+    "test:browser": "node scripts/test_browser.cjs",
+    "build:charts": "node scripts/vendor_charts.cjs",
+    "build:vendor": "node scripts/vendor_charts.cjs && node scripts/vendor_telegram.cjs",
+    "test:design": "node scripts/test_design.cjs"
   },
   "devDependencies": {
-    "puppeteer": "25.16.0"
+    "puppeteer": "25.16.0",
+    "echarts": "6.1.0"
   }
 }

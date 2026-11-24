@@ -36,3 +36,9 @@ node_modules/
 browser-checks/
 .cache/
 npm-debug.log*
+
+# Curated fictional screenshots only
+!assets/screenshots/
+!assets/screenshots/*.png
+miniapp/vendor/echarts.min.js
+miniapp/vendor/telegram-web-app.js

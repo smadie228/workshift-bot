@@ -5,6 +5,11 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 import os
+import tempfile
+import zipfile
+import xml.etree.ElementTree as ET
+from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.styles import numbers
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -49,23 +54,95 @@ def safe_spreadsheet_text(value):
     return value
 
 def addrow(ws,row,values,tone=None):
-    n=len(values);row=min(max(7,row),10000)
+    n=len(values)
+    if not 7<=row<=1048576:raise ValueError("Spreadsheet row outside supported range")
     color=tone or (WHITE if row%2 else CLOUD)
     for j,val in enumerate(values,1):
         c=ws.cell(row,j,safe_spreadsheet_text(val))
         c.font=Font(name="Calibri",size=10,color=INK)
         c.fill=PatternFill("solid",fgColor=color)
         c.border=BORDER
-        c.alignment=Alignment(vertical="center",wrap_text=True,indent=1)
-    ws.row_dimensions[row].height=25
+        c.alignment=Alignment(horizontal="right" if isinstance(val,(int,float)) else "left",vertical="center",wrap_text=True,indent=1)
+    ws.row_dimensions[row].height=max(24,min(72,18*max((len(str(v))//max(10,int(ws.column_dimensions[get_column_letter(j)].width or 18))+1 for j,v in enumerate(values,1)),default=1)))
+
+def formula(book,ws,cell,text,value):
+    """Formula plus verified snapshot cache for viewers that do not recalculate."""
+    ws[cell]=text
+    ws[cell].alignment=Alignment(horizontal="right",vertical="center",wrap_text=True,indent=1)
+    if not hasattr(book,"_report_cache"):book._report_cache={}
+    book._report_cache[(ws.title,cell)]=value
+
+
+def finish_table(ws,last,n,sums=None):
+    """Sortable native Excel table, with a filter-sensitive total underneath."""
+    if last<7:return
+    count=sum(len(sheet.tables) for sheet in ws.parent.worksheets)
+    table=Table(displayName=f"ShiftTable{count+1}",ref=f"A6:{get_column_letter(n)}{last}")
+    table.tableStyleInfo=TableStyleInfo(name="TableStyleMedium2",showRowStripes=True,showColumnStripes=False)
+    ws.add_table(table)
+    ws.auto_filter.ref=table.ref
+    if sums:
+        target=last+2
+        addrow(ws,target,["Итого по фильтру"]+[None]*(n-1),MINT)
+        for col,value in sums.items():
+            letter=get_column_letter(col)
+            formula(ws.parent,ws,f"{letter}{target}",f"=SUBTOTAL(109,{letter}7:{letter}{last})",value)
+            ws.cell(target,col).number_format=ws.cell(7,col).number_format
+        for cell in ws[target]:cell.font=Font(name="Calibri",size=11,bold=True,color=INK)
+
+
+def _apply_caches(path,book):
+    cache=getattr(book,"_report_cache",{})
+    if not cache:return
+    ns="{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    replacement=path.with_name(path.name+".cached")
+    try:
+        with zipfile.ZipFile(path) as src,zipfile.ZipFile(replacement,"w",zipfile.ZIP_DEFLATED) as dst:
+            targets={f"xl/worksheets/sheet{i}.xml":ws.title for i,ws in enumerate(book.worksheets,1)}
+            for info in src.infolist():
+                data=src.read(info.filename)
+                title=targets.get(info.filename)
+                entries={cell:value for (name,cell),value in cache.items() if name==title}
+                if entries:
+                    tree=ET.fromstring(data)
+                    for cell in tree.iter(ns+"c"):
+                        if cell.get("r") not in entries:continue
+                        value=entries[cell.get("r")]
+                        node=cell.find(ns+"v")
+                        if node is None:node=ET.SubElement(cell,ns+"v")
+                        if value is None or isinstance(value,str):
+                            cell.set("t","str");node.text="" if value is None else value
+                        else:
+                            cell.attrib.pop("t",None)
+                            node.text=str(value)
+                    data=ET.tostring(tree,encoding="utf-8",xml_declaration=True)
+                dst.writestr(info,data)
+        os.replace(replacement,path)
+    finally:replacement.unlink(missing_ok=True)
+
 
 def save(book,filename):
     path=DATA_DIR/filename
     path.parent.mkdir(parents=True,exist_ok=True)
-    temp=path.with_suffix(".new.xlsx")
-    book.save(temp)
-    os.replace(temp,path)
+    for ws in book.worksheets:
+        ws.page_setup.orientation="landscape" if ws.max_column>5 else "portrait"
+        ws.page_setup.paperSize=ws.PAPERSIZE_A4
+        ws.page_setup.fitToWidth=1;ws.page_setup.fitToHeight=0
+        ws.print_options.horizontalCentered=True
+        ws.oddFooter.center.text="Мои смены | &P / &N"
+        ws.sheet_view.zoomScale=90
+        ws.sheet_properties.outlinePr.summaryRight=False
+        ws.print_area=f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+    fd,name=tempfile.mkstemp(prefix=".report-",suffix=".xlsx",dir=path.parent)
+    os.close(fd);temp=Path(name)
+    try:
+        book.save(temp)
+        _apply_caches(temp,book)
+        os.chmod(temp,0o600)
+        os.replace(temp,path)
+    finally:temp.unlink(missing_ok=True)
     return path
+
 
 def plan(db):
     book=Workbook()
@@ -76,7 +153,7 @@ def plan(db):
     all_days=db.execute("""SELECT day FROM plan_days
         UNION SELECT day FROM history_source_rows WHERE status IN ('План','Выходной')
         ORDER BY day""").fetchall()
-    rows=[plan_day(db,row["day"]) for row in all_days]
+    rows=[item for row in all_days if (item:=plan_day(db,row["day"])) is not None]
     for i,r in enumerate(rows,7):
         day=datetime.strptime(r["day"],"%Y-%m-%d")
         status="Выходной" if r["status"]=="off" else "План"
@@ -133,7 +210,7 @@ def office(db):
         if s["end_utc"]:mine[local_day(s["start_utc"])]+=paid_hours(s)
     known={r["day"]:r["hours"] for r in db.execute("SELECT day,hours FROM office_days")}
     photo=[r["day"] for r in db.execute("SELECT day FROM office_image_days ORDER BY day")]
-    dates=sorted(set(photo)|set(known))
+    dates=sorted(set(photo)|set(known)|set(mine))
     for i,day in enumerate(dates,7):
         o=known.get(day);m=mine.get(day)
         delta=round(m-o,2) if o is not None and m is not None else None

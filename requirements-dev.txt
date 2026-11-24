@@ -1,0 +1,3 @@
+-r requirements.txt
+pypdf==7.1.0
+tzdata==2026.6  # Europe/Moscow on Windows test environments

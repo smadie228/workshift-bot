@@ -4,6 +4,7 @@ No network calls and no dependence on Telegram. Can be invoked by systemd timer.
 """
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from datetime import datetime, timezone
 from core import DB_PATH, DATA_DIR
@@ -23,8 +24,12 @@ def create_backup(source=DB_PATH,destination=None):
     if temporary.exists():
         raise RuntimeError("A backup is already being created")
     try:
-        with sqlite3.connect(f"file:{source.as_posix()}?mode=ro",uri=True,timeout=30) as db:
-            with sqlite3.connect(temporary,timeout=30) as target:
+        # sqlite3.Connection.__exit__ commits/rolls back but does NOT close.
+        # Explicit closing is required before atomic rename, especially on Windows.
+        with closing(sqlite3.connect(
+            f"file:{source.as_posix()}?mode=ro",uri=True,timeout=30
+        )) as db:
+            with closing(sqlite3.connect(temporary,timeout=30)) as target:
                 db.backup(target)
                 integrity=target.execute("PRAGMA integrity_check").fetchone()[0]
                 if integrity!="ok":
@@ -42,7 +47,8 @@ def create_backup(source=DB_PATH,destination=None):
 
 def verify_backup(filename):
     path=Path(filename)
-    with sqlite3.connect(f"file:{path.as_posix()}?mode=ro",uri=True) as db:
+    # The connection context manager does not close SQLite handles on exit.
+    with closing(sqlite3.connect(f"file:{path.as_posix()}?mode=ro",uri=True)) as db:
         status=db.execute("PRAGMA integrity_check").fetchone()[0]
         if status!="ok":
             raise RuntimeError("Backup failed integrity_check")

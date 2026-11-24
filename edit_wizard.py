@@ -1,6 +1,8 @@
 """Private owner-only guided corrections; no changes until confirmation."""
 from datetime import datetime, timedelta
 from html import escape
+import confirmation
+import actual_shift
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from core import TZ, corrected_shift, close_open_shift, open_shift, read_time, default_break, shifts, local_day, log
 
@@ -14,15 +16,16 @@ def date_from_text(value):
     value=value.strip()
     for fmt in ("%Y-%m-%d","%d.%m.%Y","%d.%m"):
         try:
-            parsed=datetime.strptime(value,fmt)
             if fmt=="%d.%m":
-                parsed=parsed.replace(year=datetime.now(TZ).year)
+                parsed=datetime.strptime(f"{value}.{datetime.now(TZ).year}","%d.%m.%Y")
+            else:
+                parsed=datetime.strptime(value,fmt)
             if parsed.date() > datetime.now(TZ).date()+timedelta(days=1):
                 raise ValueError("Нельзя заранее учитывать будущую смену")
             return parsed.date().isoformat()
         except ValueError:
             pass
-    raise ValueError("Напиши дату как 16.11 или 2024-07-16")
+    raise ValueError("Напиши дату как 16.11 или 2026-11-16")
 
 def parse_clock(value):
     x=value.strip().replace(".",":")
@@ -63,7 +66,7 @@ def step_keyboard(flow):
           [("45 мин","edit:mins:45"),("60 мин","edit:mins:60")],
           [("❌ Отмена","edit:cancel")]])
     if flow["step"]=="confirm":
-        return markup([[("✅ Сохранить","edit:save")],[("❌ Отмена","edit:cancel")]])
+        return markup([[("✅ Сохранить","edit:save:"+confirmation.issue(flow))],[("❌ Отмена","edit:cancel")]])
     return cancel_markup()
 
 async def reply(update,context,text,keyboard):
@@ -73,6 +76,16 @@ async def reply(update,context,text,keyboard):
             parse_mode="HTML",reply_markup=keyboard)
     else:
         await update.message.reply_text(text,parse_mode="HTML",reply_markup=keyboard)
+
+def existing_shift_flow(db,shift_id,day=None):
+    if type(shift_id) is not int or not 0<shift_id<=9007199254740991:
+        raise ValueError("Некорректный номер смены.")
+    row=db.execute("SELECT * FROM shifts WHERE id=? AND end_utc IS NOT NULL",(shift_id,)).fetchone()
+    if not row or (day is not None and local_day(row['start_utc'])!=day):
+        raise ValueError("Смена не найдена, изменена или ещё открыта. Открой день заново.")
+    return {"step":"start","date":local_day(row['start_utc']),"shift_id":row['id'],
+            "break_minutes":row['break_minutes'],"expected_revision":actual_shift.shift_revision(db,row['id'])}
+
 
 async def callback(update,context,db):
     q=update.callback_query
@@ -99,7 +112,7 @@ async def callback(update,context,db):
         context.user_data["correction"]={
              "step":"end","date":local_day(s["start_utc"]),
              "start":read_time(s["start_utc"]).strftime("%H:%M"),
-             "shift_id":s["id"],"break_minutes":s["break_minutes"],"close_open":True}
+             "shift_id":s["id"],"break_minutes":s["break_minutes"],"close_open":True,"expected_revision":actual_shift.shift_revision(db,s["id"])}
     elif action[1]=="day" and len(action)>2:
         try:
             target=date_from_text(action[2])
@@ -114,13 +127,10 @@ async def callback(update,context,db):
     elif action[1]=="fix" and len(action)>2:
         try:shift_id=int(action[2])
         except ValueError:return True
-        s=db.execute("SELECT * FROM shifts WHERE id=? AND end_utc IS NOT NULL",(shift_id,)).fetchone()
-        if not s:
-            await reply(update,context,"Смена не найдена или ещё открыта.",cancel_markup())
+        try:context.user_data["correction"]=existing_shift_flow(db,shift_id)
+        except ValueError as exc:
+            await reply(update,context,str(exc),cancel_markup())
             return True
-        context.user_data["correction"]={
-           "step":"start","date":local_day(s["start_utc"]),
-           "shift_id":s["id"],"break_minutes":s["break_minutes"]}
     elif action[1]=="mins":
         flow=context.user_data.get("correction")
         if not flow or flow["step"]!="break":
@@ -132,15 +142,15 @@ async def callback(update,context,db):
         flow["step"]="confirm"
     elif action[1]=="save":
         flow=context.user_data.get("correction")
-        if not flow or flow["step"]!="confirm":
+        if not flow or flow["step"]!="confirm" or not confirmation.valid(flow,action[2] if len(action)==3 else None):
             await reply(update,context,"Подтверждение устарело. Начни заново.",cancel_markup())
             return True
         try:
             if flow.get("close_open"):
-                sid=close_open_shift(db,flow["shift_id"],flow["end"],flow["break_minutes"])
+                sid=close_open_shift(db,flow["shift_id"],flow["end"],flow["break_minutes"],expected_revision=flow.get("expected_revision"))
             else:
                 sid=corrected_shift(db,flow["date"],flow["start"],flow["end"],
-                                    flow["break_minutes"],flow.get("shift_id"))
+                                    flow["break_minutes"],flow.get("shift_id"),expected_revision=flow.get("expected_revision"))
         except (ValueError,TypeError) as exc:
             await reply(update,context,
                 "Не получилось сохранить: "+escape(str(exc)),

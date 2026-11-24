@@ -1,126 +1,208 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="color-scheme" content="dark light">
-<meta name="theme-color" content="#0c1828">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark light"><meta name="theme-color" content="#101923">
 <title>Мои смены</title>
-<link rel="icon" href="./logo.svg" type="image/svg+xml">
-<link rel="stylesheet" href="./app.css">
-<script src="https://telegram.org/js/telegram-web-app.js?65"></script>
-<script defer src="./app.js"></script>
+<link rel="icon" href="./logo.svg" type="image/svg+xml"><link rel="stylesheet" href="./app.css">
+<script src="./telegram-web-app.js"></script>
+<script defer src="./echarts.min.js"></script><script defer src="./app.js"></script>
 </head>
-<body data-theme="dark">
+<body data-theme="dark" data-page="home" data-money-private="true">
+<a class="skip-link" href="#page-home">Перейти к содержимому</a>
 <main class="shell">
   <header class="masthead">
-    <div class="identity">
-      <img class="symbol" src="./logo.svg" alt="" aria-hidden="true">
-      <div><p class="eyebrow">Личный рабочий кабинет</p><h1>Мои смены</h1></div>
-    </div>
-    <div class="header-tools">
-      <span id="connection" class="connection" aria-live="polite"><span class="dot"></span>Подключение</span>
-      <button class="circle-button" id="theme-switch" aria-label="Сменить тему">☼</button>
-    </div>
+    <div class="identity"><img class="symbol" src="./logo.svg" alt=""><div><h1>Мои смены</h1><p class="brand-note">Время. График. Деньги.</p></div></div>
+    <div class="header-tools"><span id="connection" class="connection" aria-live="polite"><span class="dot"></span>Подключение</span><button class="circle-button privacy-toggle" data-money-toggle type="button" aria-pressed="false" aria-label="Показать суммы" title="Показать суммы"><svg viewBox="0 0 24 24" class="ui-icon" aria-hidden="true" focusable="false"><path d="M2 12s3.7-6 10-6 10 6 10 6-3.7 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="M3 3 21 21"/></svg></button><button class="circle-button" id="theme-switch" aria-label="Сменить тему">☼</button></div>
   </header>
-
-  <div id="demo-banner" class="demo-banner">Демонстрация · вымышленные данные</div>
-  <div id="offline-banner" class="offline-banner" hidden>Нет связи. Новые отметки можно сохранить только как черновики для подтверждения позже.</div>
-
-  <div id="view-only-banner" class="info-banner" hidden>Кабинет работает в режиме просмотра. Отметки, перерывы и исправления доступны в чате бота.</div>
+  <div id="demo-banner" class="demo-banner">Демо · данные вымышлены</div>
+  <div id="offline-banner" class="offline-banner" hidden>Нет связи. Без сети отметки не отправляются и не попадают в рабочее время.</div>
   <div id="connection-banner" class="offline-banner" role="alert" hidden><p id="connection-error"></p><button id="retry-connection" class="small-switch">Повторить загрузку</button></div>
-
-  <section class="page shown" id="page-home" aria-label="Главная">
-    <div class="section-overline"><span>Сегодня</span><span id="today-date"></span></div>
-    <article class="work-card">
-      <div class="work-card-top"><span id="shift-label" class="state-pill"><span class="dot"></span>Смена не начата</span><span class="card-kicker">ВРЕМЯ С НАЧАЛА</span></div>
-      <div class="time-display" id="live-time" aria-live="off">00:00:00</div>
-      <p class="muted" id="shift-subtitle">Начни смену одним нажатием</p>
-      <div class="shift-meta">
-        <div><span>Приход</span><strong id="shift-start">—</strong></div>
-        <div><span>Перерыв</span><strong id="shift-break">30 мин</strong></div>
-        <div><span>Сейчас</span><strong id="shift-now">—</strong></div>
-      </div>
-      <div class="action-buttons">
-        <button class="main-action" id="shift-action">● Пришёл</button>
-        <button class="secondary-action" id="break-action" hidden>☕ Перерыв</button>
-      </div>
-      <p class="mini-disclaimer">Сервер фиксирует время. Пропущенную отметку можно исправить через подтверждение в чате.</p>
+  <section id="write-recovery" class="offline-banner write-recovery" role="alert" hidden><p>Результат последнего сохранения не подтверждён. Проверь его перед новой отметкой.</p><button id="write-retry" class="small-switch">Проверить сохранение</button></section>
+  <section class="period-control" aria-label="Период отчёта">
+    <div><span class="period-caption">Месяц</span><strong id="calendar-month" class="sr-only"></strong></div>
+    <div class="period-actions"><button id="month-prev" aria-label="Предыдущий месяц">‹</button><label class="month-picker"><span class="sr-only">Месяц и год</span><input type="month" id="month-jump" min="2000-01" max="2100-12" aria-label="Выбрать месяц и год"></label><button id="month-next" aria-label="Следующий месяц">›</button></div>
+  </section>
+  <div class="period-shortcuts"><button id="month-today" class="text-button">Текущий месяц</button><button class="text-button" data-chat="reports">Отчёт за месяц</button></div>
+  <section class="page shown" id="page-home" tabindex="-1" aria-label="Сегодня">
+    <div class="page-heading home-heading"><div><p class="eyebrow">Твой рабочий день</p><h2>Сегодня</h2></div><span id="today-date" class="muted"></span></div>
+    <article class="work-card"><img class="work-art" src="./logo.svg" alt="" aria-hidden="true">
+      <div class="work-card-top"><span id="shift-label" class="state-pill"><span class="dot"></span>Смена не начата</span><span class="card-kicker">МОСКВА</span></div>
+      <div class="time-display" id="live-time">00:00:00</div><h3 id="idle-title" class="idle-title" hidden>Ты вне смены</h3><p class="muted" id="shift-subtitle">Начни смену одним нажатием</p>
+      <div class="shift-meta"><div><span>Приход</span><strong id="shift-start">—</strong></div><div><span>Перерыв</span><strong id="shift-break">—</strong></div><div><span>Сейчас</span><strong id="shift-now">—</strong></div></div><p id="shift-duration-warning" class="shift-warning" role="status" aria-live="polite" hidden></p>
+      <div class="action-buttons"><button class="main-action" id="shift-action">● Пришёл</button><button class="secondary-action" id="break-action" hidden>Завершить ранее начатый перерыв</button></div>
+      <details id="shift-correction-tools" class="shift-correction-tools" hidden><summary>Уточнить время</summary><div class="shift-correction-actions"><button id="attendance-earlier" class="text-button" hidden>Указать фактическое время</button><button id="active-correct" class="text-button" hidden>Исправить текущую смену</button></div></details>
+      <p id="view-only-banner" class="mini-disclaimer" hidden>Отметка сохраняется кнопкой в чате.</p>
     </article>
-    <div class="section-heading"><h2>Месяц в цифрах</h2><span id="month-title-home"></span></div>
-    <div class="metrics">
-      <article class="metric"><div class="metric-icon">◷</div><span>Отработано</span><strong id="home-hours">—</strong><small id="home-shifts">— смен</small></article>
-      <article class="metric"><div class="metric-icon gold">₽</div><span>Начислено</span><strong id="home-money">—</strong><small>По личным записям</small></article>
+    <section class="home-summary" aria-label="Итоги выбранного месяца"><div class="section-heading"><h3>За месяц</h3><button class="text-button" data-nav="calendar" id="month-title-home">Выбрать</button></div>
+    <div class="metrics"><button class="metric tappable" data-nav="calendar" data-mode="table"><span>Отработано</span><strong id="home-hours">—</strong><small id="home-shifts">— смен</small><span class="metric-link">Открыть список ↗</span></button><button class="metric tappable" data-nav="salary"><span>За рабочие часы</span><strong id="home-money">—</strong><small>Без будущего плана</small><span class="metric-link">Посмотреть расчёт ↗</span></button></div></section>
+    <section class="agenda-section" id="agenda-section" aria-label="Ближайший график" hidden>
+      <button id="next-plan" class="next-plan" type="button"><span class="next-plan-copy"><span id="next-plan-label" class="eyebrow">Ближайшая смена</span><strong id="next-plan-title">—</strong><span id="next-plan-time" class="muted"></span></span><span class="arrow" aria-hidden="true">›</span></button>
+      <details class="agenda-week"><summary><span>Ближайшие 7 дней</span><span id="agenda-summary" class="muted"></span></summary><div id="agenda-days" class="agenda-days"></div><p class="plan-note">Это график, не отработанное время. Нажми день, чтобы открыть его.</p></details>
+    </section>
+    <article class="small-card tappable" id="alerts-preview" data-nav="review" tabindex="0" role="button"><span class="side-icon" aria-hidden="true">✓</span><div class="grow"><strong id="alerts-title">Проверка записей</strong><p id="alerts-summary">Загрузка…</p></div><span class="arrow">›</span></article>
+    <section class="recent-section"><div class="section-heading"><h3>Последние смены</h3><button class="text-button" data-nav="calendar" data-mode="table">Все →</button></div><div id="recent-shifts" class="stack recent-card"></div></section>
+  </section>
+  <section class="page" id="page-calendar" tabindex="-1" aria-label="Календарь">
+    <div class="page-heading"><div><p class="eyebrow">Работа и отдых</p><h2>Календарь</h2></div><div class="segmented" role="group" aria-label="Вид календаря"><button id="mode-calendar" aria-pressed="true">Месяц</button><button id="mode-table" aria-pressed="false">Список</button></div></div>
+    <div id="table-panel" hidden>
+      <div class="table-tools"><label><span class="sr-only">Фильтр записей</span><select id="table-filter"><option value="relevant">С записями</option><option value="all">Все дни</option><option value="worked">Отработано</option><option value="planned">По плану</option><option value="review">Проверить</option><option value="estimated">Расчёт по офису</option><option value="deleted">Есть удалённые</option></select></label><label><span class="sr-only">Сортировка</span><select id="table-sort"><option value="date-asc">По дате ↑</option><option value="date-desc">По дате ↓</option><option value="hours">Больше часов</option><option value="earnings">Больше начислено</option></select></label><label class="table-search"><span class="sr-only">Поиск по табелю</span><input id="table-search" type="search" placeholder="Найти дату или время" autocomplete="off"></label></div>
+      <button id="table-reset" class="text-button" hidden>Сбросить поиск и фильтр</button>
+      <div id="table-summary" role="status" aria-live="polite" aria-atomic="true" class="table-summary"></div>
+      <div class="ledger-wrap"><table class="ledger-table"><caption class="sr-only">План, фактические смены и начисления по дням</caption><thead><tr><th scope="col">День</th><th scope="col">План</th><th scope="col">Факт</th><th scope="col">Часы</th><th scope="col">Начислено</th><th scope="col">Офис</th><th scope="col">Статус</th></tr></thead><tbody id="ledger-body"></tbody></table><div id="table-empty" class="empty-card" hidden>По этому фильтру записей нет.</div></div>
+      <p class="footnote">Нажми на дату для разбора. «—» означает отсутствие подтверждённых данных, а не нулевое время.</p>
     </div>
-    <article class="small-card tappable" id="alerts-preview" data-nav="review" tabindex="0" role="button">
-      <div class="side-icon">◇</div><div class="grow"><strong>Контроль записей</strong><p id="alerts-summary">Загрузка...</p></div><span class="arrow">›</span>
-    </article>
-    <div class="section-heading"><h2>Последние смены</h2><button class="text-button" data-nav="calendar">Календарь ›</button></div>
-    <div id="recent-shifts" class="stack"></div>
+    <div id="calendar-panel"><div class="batch-toolbar"><button id="bulk-toggle" class="small-switch" aria-pressed="false">Выбрать дни</button><span id="bulk-hint" aria-live="polite">Один график для нескольких дат</span><button id="calendar-export" class="small-switch" type="button" aria-label="Экспортировать плановые смены выбранного месяца в календарь">Экспорт .ics</button></div>
+      <article class="calendar-card"><div class="weekday-grid" aria-hidden="true"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div><div id="calendar-grid" class="date-grid" role="group" aria-label="Календарь рабочего времени, выбери дату" aria-describedby="calendar-keys"></div><p id="calendar-keys" class="keyboard-hint">Клавиатура: стрелки — по дням, Home/End — по неделе, Page Up/Down — по месяцам. Enter — открыть день.</p><div class="legend" aria-label="Обозначения календаря"><span><i class="legend-dot worked" aria-hidden="true"></i>Отработано</span><span><i class="legend-dot planned" aria-hidden="true"></i>По плану</span><span><i class="legend-dot off" aria-hidden="true"></i>Выходной</span></div></article><section id="bulk-editor" class="bulk-editor" aria-label="Изменение нескольких дней" hidden>
+        <div class="bulk-heading"><h3 id="bulk-count" aria-live="polite">Выбери даты</h3><button id="bulk-clear" class="text-button" type="button">Сбросить</button></div>
+        <p id="bulk-dates" class="bulk-dates"></p>
+        <form id="bulk-form"><fieldset id="bulk-fields"><div class="segmented plan-choices bulk-choices" role="group" aria-label="План выбранных дней"><button type="button" id="bulk-shift" aria-pressed="true">Рабочий</button><button type="button" id="bulk-off" aria-pressed="false">Выходной</button><button type="button" id="bulk-unset" aria-pressed="false">Не задан</button></div>
+          <div id="bulk-times"><div class="plan-times"><label>Начало<input id="bulk-start" type="time" step="60" required value="16:00"></label><label>Окончание<input id="bulk-end" type="time" step="60" required value="02:00"></label></div>
+          <div class="bulk-presets"><span>Быстрое время</span><button type="button" class="small-switch" data-bulk-preset="09:00/18:00">09–18</button><button type="button" class="small-switch" data-bulk-preset="16:00/02:00">16–02</button></div></div>
+          <p id="bulk-preview" class="plan-preview"></p><p class="plan-note" id="bulk-note">Меняется только план. Перед сохранением покажем все выбранные даты.</p><p id="bulk-error" class="plan-error" role="alert"></p>
+          <div class="bulk-actions"><button id="bulk-submit" type="submit" class="main-action" disabled>Проверить в чате →</button><button id="bulk-cancel" type="button" class="secondary-action">Отмена</button></div></fieldset><button type="button" class="small-switch inline-write-retry" id="bulk-retry" hidden>Проверить сохранение</button>
+        </form>
+      </section><div id="calendar-counts" class="calendar-counts" aria-live="polite"></div><p class="footnote">Нажми дату, чтобы изменить график или посмотреть смену. Пустой день — план не задан.</p></div>
   </section>
+  <section class="page" id="page-salary" tabindex="-1" aria-label="Деньги">
+    <div class="page-heading"><div><p class="eyebrow">Без догадок</p><h2>Деньги</h2></div><span id="salary-month" class="muted"></span></div><p id="money-privacy-tip" class="money-privacy-tip">Суммы скрыты. Нажми на глаз, чтобы посмотреть их. Время автоскрытия настраивается в разделе «Ещё».</p>
+    <div class="salary-top"><article class="salary-hero"><span class="muted">Начислено с корректировками</span><strong id="salary-total">—</strong><span class="subline" id="salary-hours">—</span><div class="salary-stats"><div><span>За часы</span><strong id="salary-base">—</strong></div><div><span>Корректировки</span><strong id="salary-extra">—</strong></div></div></article><article class="received-card"><div><span>Получено</span><p>Внесённые поступления</p></div><strong id="salary-received">—</strong></article></div>
+    <section class="cashflow-card" aria-label="Сверка начислений и поступлений"><div class="cashflow-main"><div><span class="eyebrow">Сверка месяца</span><h3 id="salary-balance-label">Ещё не получено</h3><strong id="salary-balance">—</strong></div></div><div id="cashflow-progress-track" class="cashflow-track" role="progressbar" aria-label="Доля полученного от начисленного" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="cashflow-progress-fill"></span></div><div class="cashflow-meta"><span id="cashflow-progress-label">—</span><span id="cashflow-earned-label">—</span></div><p id="cashflow-note" class="footnote">Разница между начислением и поступлениями за выбранный месяц.</p></section>
+    <section class="payment-history-card" aria-label="История выплат"><div class="section-heading"><div><h2>История выплат</h2><p class="muted">Поступления по всем рабочим месяцам</p></div><button id="payment-history-load" class="small-switch" type="button" disabled>Загрузить историю</button></div><p id="payment-history-note" class="plan-note" role="status" aria-live="polite" aria-atomic="true">История выплат скрыта. Покажи суммы, чтобы открыть её.</p><div id="payment-history-filters" class="payment-history-filters" hidden><label>Поиск<input id="payment-history-search" type="search" placeholder="Дата или комментарий" autocomplete="off"></label><label>Рабочий месяц<select id="payment-history-month"><option value="all">Все месяцы</option></select></label><label>Часть месяца<select id="payment-history-period"><option value="all">Любая</option><option value="1">1–15 число</option><option value="2">16–конец</option></select></label><button id="payment-history-reset" class="text-button" type="button" hidden>Сбросить фильтры</button></div><div id="payment-history-list" class="payment-history-list" hidden></div></section>
+    <div class="context-actions" aria-label="Основные финансовые действия"><button class="secondary-action" data-chat="payment">Записать поступление</button><button class="secondary-action" data-chat="reports">Скачать Excel / PDF</button></div>
+    <details class="money-extra" id="salary-more-actions">
+      <summary>Премии и исправления</summary>
+      <div class="context-actions"><button class="small-switch" data-workspace="adjustment">+ Премия / удержание</button><button class="text-button" data-workspace="money">Все записи и исправления</button></div>
+    </details>
+    <div class="section-heading"><h2>Две части месяца</h2><span>За часы</span></div><div id="salary-periods" class="metrics"></div>
+    <div class="salary-grid"><section class="chart-section"><div class="section-heading"><h2>Динамика</h2><div class="segmented" aria-label="Вид графика"><button id="chart-money" aria-pressed="true" aria-label="График начислений">Рубли</button><button id="chart-hours" aria-pressed="false">Часы</button></div></div>
+    <article class="chart-card"><div id="income-chart" class="income-chart" role="img" aria-label="Динамика выбранного месяца"></div><p id="chart-note" class="footnote">Нажми на точку, чтобы открыть день.</p></article></section><section class="breakdown-section">
+    <details class="disclosure" id="salary-breakdown"><summary>Из чего складывается сумма</summary><article class="details-card"><div id="rate-breakdown"></div><div class="detail-line"><span>Премии и доплаты</span><strong id="salary-bonuses">—</strong></div><div class="detail-line"><span>Возмещения</span><strong id="salary-reimbursements">—</strong></div><div class="detail-line"><span>Удержания</span><strong id="salary-deductions">—</strong></div></article></details>
 
-  <section class="page" id="page-calendar" aria-label="Календарь">
-    <div class="section-heading space-between"><div><p class="eyebrow">РАСПИСАНИЕ</p><h2>Календарь</h2></div><div class="month-switcher"><button id="month-prev" aria-label="Предыдущий месяц">‹</button><span id="calendar-month"></span><button id="month-next" aria-label="Следующий месяц">›</button></div></div>
-    <label class="month-picker">Перейти к месяцу<input type="month" id="month-jump" min="2000-01" max="2100-12" aria-label="Выбрать месяц и год"></label>
-    <article class="calendar-card">
-      <div class="weekday-grid"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
-      <div id="calendar-grid" class="date-grid" role="group" aria-label="Календарь рабочего времени"></div>
-      <div class="legend"><span><i class="legend-dot worked"></i>Работал</span><span><i class="legend-dot planned"></i>План</span><span><i class="legend-dot off"></i>Выходной</span></div>
-    </article>
-    <div class="section-heading"><h2 id="day-heading">Выбранный день</h2></div>
-    <article id="day-details" class="details-card"><p class="muted">Нажми на дату в календаре.</p></article>
-    <p class="footnote">План, реальные отметки и часы офиса сохраняются отдельно.</p>
+    <article class="forecast-card" id="forecast-card"><span class="eyebrow">Прогноз / не начислено</span><strong id="forecast-money">—</strong><p id="forecast-note"></p></article>
+    </section></div>
+<section class="annual-section" aria-label="Аналитика за год">
+      <div class="section-heading"><h2>Год в цифрах</h2><button id="annual-toggle" class="small-switch" aria-expanded="false">Открыть год</button></div>
+      <div id="annual-panel" hidden><p id="annual-status" class="footnote" role="status"></p><div id="annual-metrics" class="metrics"></div><article class="chart-card annual-finance-card"><div id="annual-finance-chart" class="income-chart" role="img" aria-label="Сравнение начислений и поступлений по месяцам года" hidden></div><p id="annual-finance-note" class="footnote">Покажи суммы, чтобы увидеть годовую динамику.</p></article><div id="annual-months" class="annual-months"></div><p class="footnote">Только закрытые смены. Нажми месяц, чтобы открыть его расчёт. Годовой PDF доступен в «Деньги» → «Скачать Excel / PDF».</p></div>
+    </section>
+    <details class="weekly-details disclosure"><summary>Часы по неделям</summary><div id="weekly-chart" class="bar-chart" role="img" aria-label="Отработанные часы по неделям"></div></details>
+    <p class="footnote">Расчёт не заменяет ведомость работодателя. Налоги и задолженность автоматически не вычисляются.</p>
   </section>
-
-  <section class="page" id="page-salary" aria-label="Зарплата">
-    <div class="section-overline"><span>Финансовый обзор</span><span id="salary-month"></span></div>
-    <article class="salary-hero">
-      <span class="muted">Расчётная сумма с корректировками</span>
-      <strong id="salary-total">—</strong>
-      <span class="subline" id="salary-hours">— часов</span>
-      <div class="salary-stats"><div><span>За часы</span><strong id="salary-base">—</strong></div><div><span>Доплаты и удержания</span><strong id="salary-extra">—</strong></div></div>
+  <section class="page" id="page-review" tabindex="-1" aria-label="Проверка и настройки">
+    <div class="page-heading"><div><p class="eyebrow">Всё под рукой</p><h2>Ещё</h2></div></div>
+    <article class="details-card report-help action-hub">
+      <div class="action-hub-heading"><div><p class="eyebrow">Быстрый доступ</p><h3>Что сделать?</h3></div><span class="action-hub-mark" aria-hidden="true">✦</span></div>
+      <div class="quick-grid primary-actions">
+        <button class="small-switch" data-chat="payment">+ Поступление</button>
+        <button class="small-switch" data-chat="reports">Отчёт</button>
+        <button class="small-switch" data-nav="calendar" data-mode="table">Исправить смену</button>
+      </div>
+      <details class="toolkit-details" id="more-tools">
+        <summary>Все инструменты <span class="muted">· график, ставки, история</span></summary>
+        <div class="quick-grid secondary-tools">
+          <button class="small-switch" data-chat="plan">Повторяющийся график</button>
+          <button class="small-switch" data-workspace="settings">Ставка и перерыв</button>
+          <button class="small-switch" data-workspace="money">Записи денег</button>
+          <button class="small-switch" data-activity>История изменений</button>
+        </div>
+        <button id="return-chat" class="text-button">Открыть чат-бот →</button>
+      </details>
     </article>
-    <div class="section-heading"><h2>За часы · две части месяца</h2></div>
-    <div id="salary-periods" class="metrics"></div>
-    <div class="section-heading"><h2>Рабочие часы · 6 недель</h2></div>
-    <article class="chart-card"><div id="weekly-chart" class="bar-chart" role="img" aria-label="Отработанные часы за шесть недель"></div></article>
-    <div class="section-heading"><h2>Начисления и поступления</h2></div>
-    <article class="small-card"><div class="side-icon gold">₽</div><div class="grow"><strong>Получено</strong><p>Суммы, которые внесены вручную</p></div><strong id="salary-received">—</strong></article>
-    <article class="small-card"><div class="side-icon">＋</div><div class="grow"><strong>Премии и доплаты</strong><p>Не смешиваются с почасовой ставкой</p></div><strong id="salary-bonuses">—</strong></article>
-    <article class="small-card"><div class="side-icon amber">−</div><div class="grow"><strong>Удержания</strong><p>Без автоматического расчёта налогов</p></div><strong id="salary-deductions">—</strong></article>
-    <article class="small-card"><div class="side-icon">↩</div><div class="grow"><strong>Возмещения</strong><p>Отдельно от оплаты рабочих часов</p></div><strong id="salary-reimbursements">—</strong></article>
-    <p class="footnote">Расчёт справочный, не заменяет ведомость работодателя.</p>
-  </section>
-
-  <section class="page" id="page-review" aria-label="Контроль и настройки">
-    <div class="section-overline">КАЧЕСТВО ДАННЫХ</div>
-    <h2 class="big-heading">Контроль и настройки</h2>
-    <article class="review-card"><div class="review-title"><span>◇</span><strong>Что нужно проверить</strong></div><div id="issue-list" class="stack"></div></article>
-    <div class="section-heading"><h2>Как работает система</h2></div>
-    <div class="settings-list">
-      <div class="settings-row"><span class="settings-icon">🔒</span><div><strong>Приватный доступ</strong><small>Подпись Telegram и проверка владельца</small></div><span class="status-value">Защищено</span></div>
-      <div class="settings-row"><span class="settings-icon">📂</span><div><strong>История и отчёты</strong><small>Серверная база с журналом правок</small></div><span class="status-value">Сохранены</span></div>
-      <div class="settings-row"><span class="settings-icon">☾</span><div><strong>Тема интерфейса</strong><small>Тёмная или светлая</small></div><button class="small-switch" id="theme-row-switch">Изменить</button></div>
-      <div class="settings-row"><span class="settings-icon">🔔</span><div><strong>Напоминания</strong><small>Не включены без выбора расписания</small></div><span class="status-value">Выкл.</span></div>
+    <div class="section-heading"><h3>Проверка записей</h3></div>
+    <article class="review-card"><div id="issue-list" class="stack"></div></article>
+    <div class="section-heading"><h3>Оформление</h3></div>
+    <div class="settings-list reading-settings">
+      <div class="settings-row"><div><strong>Тема</strong><small>Светлая или тёмная</small></div><button class="small-switch" id="theme-row-switch">Изменить</button></div>
+      <div class="settings-row"><div><strong>Крупный текст</strong><small>Удобнее читать и нажимать</small></div><button class="small-switch" id="text-size-switch" aria-pressed="false">Включить</button></div>
+      <details class="settings-extra" id="time-settings">
+        <summary>Предупреждения о долгой смене</summary>
+        <div class="settings-row"><label for="long-shift-threshold"><strong>Напомнить о длительной смене</strong><small>Без автоматического завершения</small></label><select id="long-shift-threshold" aria-label="Показывать предупреждение после"><option value="0">Выключено</option><option value="10">10 часов</option><option value="12">12 часов</option><option value="14">14 часов</option><option value="16">16 часов</option><option value="20">20 часов</option></select></div>
+      </details>
     </div>
+    <div class="section-heading"><h3>Приватность и сессия</h3></div>
+    <div class="settings-list privacy-settings">
+      <div class="settings-row"><label for="money-privacy-timeout"><strong>Автоскрытие сумм</strong><small>Сколько показывать деньги без действий</small></label><select id="money-privacy-timeout"><option value="15">15 секунд</option><option value="30" selected>30 секунд</option><option value="60">1 минута</option><option value="120">2 минуты</option><option value="300">5 минут</option><option value="0">Только при сворачивании</option></select></div>
+      <div class="settings-row"><label for="session-lock-timeout"><strong>Блокировка кабинета</strong><small>Экранная пауза после бездействия</small></label><select id="session-lock-timeout"><option value="0">Выключена</option><option value="1">1 минута</option><option value="3">3 минуты</option><option value="5" selected>5 минут</option><option value="10">10 минут</option><option value="30">30 минут</option></select></div>
+    </div>
+    <p class="footnote privacy-limit-note">При сворачивании Telegram суммы скрываются сразу. Экранная блокировка требует нажать «Продолжить», но не заменяет PIN-код телефона или пароль Telegram.</p>
+    <div class="section-heading"><h3>PIN и биометрия</h3></div>
+    <div class="settings-list account-security-settings">
+      <div class="settings-row"><div><strong>Дополнительная защита кабинета</strong><small id="account-security-status" role="status">Проверяем доступность…</small></div><span id="account-security-mode" class="status-value">Не настроено</span></div>
+      <div class="security-panel" id="pin-setup-panel" hidden>
+        <p class="plan-note">Установи шестизначный PIN. Он проверяется сервером, а не хранится в браузере. PIN можно будет заменить или отключить.</p>
+        <form id="pin-setup-form">
+          <label for="pin-setup-code">Новый PIN (6 цифр)</label><input id="pin-setup-code" type="password" inputmode="numeric" autocomplete="new-password" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+          <label for="pin-setup-confirm">Повтори PIN</label><input id="pin-setup-confirm" type="password" inputmode="numeric" autocomplete="new-password" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+          <button type="submit" class="main-action">Включить PIN</button>
+        </form>
+      </div>
+      <div class="security-panel" id="pin-manage-panel" hidden>
+        <div class="security-actions"><button id="security-lock-now" type="button" class="small-switch">Заблокировать сейчас</button><button id="security-biometric-enable" type="button" class="small-switch">Подключить биометрию</button></div>
+        <p id="security-biometric-status" class="plan-note">Биометрия доступна внутри поддерживаемого Telegram.</p>
+        <details class="settings-extra" id="pin-change-details"><summary>Сменить PIN</summary>
+          <form id="pin-change-form" class="security-form">
+            <label for="pin-change-old">Текущий PIN или резервный код</label><input id="pin-change-old" type="password" autocomplete="off" minlength="6" maxlength="32" required>
+            <label for="pin-change-new">Новый PIN</label><input id="pin-change-new" type="password" inputmode="numeric" autocomplete="new-password" minlength="6" maxlength="6" required>
+            <label for="pin-change-confirm">Повтори новый PIN</label><input id="pin-change-confirm" type="password" inputmode="numeric" autocomplete="new-password" minlength="6" maxlength="6" required>
+            <button type="submit" class="secondary-action">Изменить PIN</button>
+          </form>
+        </details>
+        <details class="settings-extra" id="pin-disable-details"><summary>Отключить дополнительную защиту</summary>
+          <form id="pin-disable-form" class="security-form">
+            <label for="pin-disable-code">Текущий PIN или резервный код</label><input id="pin-disable-code" type="password" autocomplete="off" minlength="6" maxlength="32" required>
+            <button type="submit" class="secondary-action">Отключить PIN и биометрию</button>
+          </form>
+        </details>
+      </div>
+      <div class="security-recovery" id="pin-recovery-card" hidden role="region" aria-label="Резервный код восстановления">
+        <strong>Сохрани код восстановления</strong>
+        <p>Код показан только сейчас. При потере PIN он понадобится для доступа. Не отправляй его в чат.</p>
+        <code id="pin-recovery-code"></code>
+        <div class="security-actions"><button type="button" id="pin-copy-recovery" class="small-switch">Скопировать</button><button type="button" id="pin-recovery-saved" class="secondary-action">Я сохранил</button></div>
+      </div>
+      <p class="plan-note security-feedback" id="account-security-feedback" role="status" aria-live="polite"></p>
+    </div>
+    <div class="section-heading"><h3>Приватность движением</h3></div>
+    <div class="settings-list phone-gesture-settings">
+      <div class="settings-row phone-auto-row">
+        <label for="phone-auto-visibility"><strong>Скрытие сумм переворотом</strong><small>Вниз и обратно вверх — скрыть суммы. Повтори такой же переворот — показать.</small><small class="sensor-caption" id="phone-motion-status" role="status">Автоматический режим выключен</small></label>
+        <input id="phone-auto-visibility" type="checkbox" aria-describedby="phone-motion-status">
+        <span id="phone-motion-state" class="sr-only">Выключен</span>
+      </div>
+      <details class="settings-extra" id="extra-gestures">
+        <summary>Дополнительные жесты</summary>
+        <div class="settings-row"><label for="phone-shake-hide"><strong>Встряхивание</strong><small>Два движения скрывают суммы</small></label><input id="phone-shake-hide" type="checkbox"></div>
+        <div class="settings-row"><label for="phone-shake-threshold"><strong>Чувствительность</strong><small>Порог срабатывания</small></label><select id="phone-shake-threshold"><option value="10">Высокая</option><option value="14" selected>Средняя</option><option value="18">Низкая</option><option value="22">Очень низкая</option></select></div>
+        <div class="settings-row"><label for="phone-orientation-hide"><strong>Поворот экрана</strong><small>Скрыть суммы при смене ориентации</small></label><input id="phone-orientation-hide" type="checkbox"></div>
+        <div class="settings-row"><label for="phone-haptics"><strong>Тактильный отклик</strong><small>Короткая вибрация, если поддерживается</small></label><input id="phone-haptics" type="checkbox"></div>
+        <p class="footnote privacy-limit-note">Жесты обрабатываются локально. Для iOS системный запрос разрешения датчика может появиться один раз. Если браузер не передаёт данные движения, обычное автоскрытие остаётся доступным. Alt+Shift+H скрывает суммы.</p>
+      </details>
+    </div>
+    <div class="settings-list sync-card"><div class="settings-row"><div><strong>Актуальность данных</strong><small id="sync-status" role="status">Загрузка…</small></div><button class="small-switch" id="manual-refresh">Обновить</button></div></div>
     <div id="pending-drafts" class="drafts" hidden></div>
-    <p class="footnote">Исправления времени, план и выплаты можно менять кнопками в чате бота.</p>
+    <p class="footnote">На устройстве сохраняются настройки вида и черновик без сети. История смен загружается с сервера.</p>
   </section>
-
-  <nav class="bottom-nav" aria-label="Разделы">
-    <button data-nav="home" class="nav-item active" aria-current="page"><span>⌂</span>Главная</button>
-    <button data-nav="calendar" class="nav-item"><span>▦</span>Календарь</button>
-    <button data-nav="salary" class="nav-item"><span>₽</span>Деньги</button>
-    <button data-nav="review" class="nav-item"><span>☷</span>Контроль</button>
-  </nav>
+  <nav class="bottom-nav" aria-label="Разделы"><button data-nav="home" class="nav-item active" aria-current="page"><svg viewBox="0 0 24 24" class="ui-icon" aria-hidden="true" focusable="false"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span class="nav-label">Сегодня</span></button><button data-nav="calendar" class="nav-item"><svg viewBox="0 0 24 24" class="ui-icon" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18M8 15h1M15 15h1M8 18h1"/></svg><span class="nav-label">Календарь</span></button><button data-nav="salary" class="nav-item"><svg viewBox="0 0 24 24" class="ui-icon" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="15" rx="3"/><path d="M3 10h18m-6 5h3"/></svg><span class="nav-label">Деньги</span></button><button data-nav="review" class="nav-item"><svg viewBox="0 0 24 24" class="ui-icon" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="18" r="2"/></svg><span class="nav-label">Ещё</span></button></nav>
 </main>
+<div id="day-sheet" class="day-backdrop" hidden><section class="day-sheet" role="dialog" aria-modal="true" aria-labelledby="day-heading"><div class="day-sheet-header"><div><p class="eyebrow">Разбор дня</p><h2 id="day-heading" tabindex="-1">Дата</h2></div><div class="sheet-header-tools"><button class="circle-button privacy-toggle" data-money-toggle type="button" aria-pressed="false" aria-label="Показать суммы" title="Показать суммы"><svg viewBox="0 0 24 24" class="ui-icon" aria-hidden="true" focusable="false"><path d="M2 12s3.7-6 10-6 10 6 10 6-3.7 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="M3 3 21 21"/></svg></button><button id="day-close" class="circle-button" aria-label="Закрыть день">×</button></div></div><p id="day-privacy-lock" class="privacy-lock-note" hidden>Подробности временно закрыты. Нажми на глаз, чтобы продолжить редактирование.</p><article id="day-details" class="day-content"></article></section></div>
+<div id="workspace-sheet" class="day-backdrop" hidden><section class="day-sheet workspace-panel" role="dialog" aria-modal="true" aria-labelledby="workspace-heading"><div class="day-sheet-header"><div><p class="eyebrow" id="workspace-context">Мои смены</p><h2 id="workspace-heading" tabindex="-1">Действия</h2></div><div class="sheet-header-tools"><button class="circle-button privacy-toggle" data-money-toggle type="button" aria-pressed="false" aria-label="Показать суммы" title="Показать суммы"><svg viewBox="0 0 24 24" class="ui-icon" aria-hidden="true" focusable="false"><path d="M2 12s3.7-6 10-6 10 6 10 6-3.7 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="M3 3 21 21"/></svg></button><button id="workspace-close" class="circle-button" aria-label="Закрыть форму">×</button></div></div><p id="workspace-privacy-lock" class="privacy-lock-note" hidden>Денежная форма временно закрыта. Нажми на глаз, чтобы продолжить.</p><nav id="workspace-nav" class="workspace-nav" aria-label="Действия кабинета"><button type="button" data-section="money">Деньги</button><button type="button" data-section="plan">График</button><button type="button" data-section="reports">Отчёты</button><button type="button" data-section="settings">Настройки</button></nav><div class="workspace-scroll"><button id="workspace-back" class="text-button" type="button" hidden>‹ Назад к разделу</button><div id="workspace-content"></div><p id="workspace-error" class="plan-error" role="alert"></p><button id="workspace-retry" class="secondary-action" hidden>Проверить сохранение</button><button id="workspace-refresh" class="text-button">Обновить данные раздела</button></div></section></div>
+<div id="session-lock" class="session-lock" hidden role="dialog" aria-modal="true" aria-labelledby="session-lock-heading"><section class="session-lock-card"><div class="session-lock-symbol" aria-hidden="true">⌑</div><p class="eyebrow">Сессия приостановлена</p><h2 id="session-lock-heading">Кабинет заблокирован</h2><p id="session-lock-reason">Кабинет приостановлен после отсутствия активности.</p><p id="session-lock-help">Денежные суммы останутся скрытыми. Чтобы продолжить, нажми кнопку ниже.</p>
+<button id="session-unlock" class="main-action" type="button">Продолжить работу</button>
+<form id="pin-unlock-form" class="security-form" hidden>
+  <label for="pin-unlock-code">Шестизначный PIN</label><input id="pin-unlock-code" type="password" inputmode="numeric" autocomplete="current-password" pattern="[0-9]{6}" maxlength="6" required>
+  <button type="submit" class="main-action">Разблокировать</button>
+</form>
+<button id="security-biometric-unlock" class="secondary-action" type="button" hidden>Отпечаток / Face ID</button>
+<details id="security-recovery-details" class="security-recovery-details" hidden>
+  <summary>Забыл PIN? Код восстановления</summary>
+  <form id="security-recovery-form" class="security-form">
+    <label for="security-recovery-input">Резервный код (32 символа)</label><input id="security-recovery-input" type="password" inputmode="text" autocomplete="off" maxlength="32" required>
+    <button type="submit" class="secondary-action">Восстановить доступ</button>
+  </form>
+</details>
+<p id="pin-unlock-feedback" class="plan-error" role="alert" aria-live="assertive"></p>
+<p class="footnote">PIN и биометрия — дополнительная защита Mini App. Вход в Telegram всё равно должен быть защищён.</p></section></div>
 <div id="toast" role="status" aria-live="polite" class="toast" hidden></div>
-<div id="modal" class="modal-backdrop" hidden>
- <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-   <h3 id="modal-title"></h3><p id="modal-text"></p>
-   <div class="modal-actions"><button id="modal-cancel" class="secondary-action">Отмена</button>
-     <button id="modal-confirm" class="main-action">Подтвердить</button></div>
- </div>
-</div>
+<div id="modal" class="modal-backdrop" hidden><div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="modal-title"><h3 id="modal-title"></h3><p id="modal-text"></p><div class="modal-actions"><button id="modal-cancel" class="secondary-action">Отмена</button><button id="modal-confirm" class="main-action">Подтвердить</button></div></div></div>
 </body>
 </html>

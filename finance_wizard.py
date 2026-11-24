@@ -1,6 +1,7 @@
 """Safe interactive settings and payment receipts; all writes require confirmation."""
 from datetime import datetime
 from html import escape
+import confirmation
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from core import TZ, default_break, put_config, log
 from finance import schedule_rate, add_payment
@@ -17,11 +18,11 @@ def response(flow):
         return ("💵 <b>Новая ставка</b>\n\nНапиши сумму за час в рублях, например <code>350</code>." if kind=="rate"
           else "☕ <b>Перерыв для будущих смен</b>\n\nНапиши количество минут, например <code>30</code>.")
     if step=="month":
-        return "💳 <b>Записать поступление зарплаты</b>\n\nЗа какой рабочий месяц? Пример: <code>2024-08</code>."
+        return "💳 <b>Записать поступление зарплаты</b>\n\nЗа какой рабочий месяц? Пример: <code>2026-11</code>."
     if step=="period":
         return f"💳 <b>{flow['month']}</b>\n\nЭто первая или вторая часть зарплаты?"
     if step=="paid_on":
-        return "📅 <b>Когда поступили деньги?</b>\n\nДата в формате <code>2024-08-16</code> или <code>16.11</code>."
+        return "📅 <b>Когда поступили деньги?</b>\n\nДата в формате <code>2026-11-16</code> или <code>16.11</code>."
     if step=="pay_amount":
         return "💰 <b>Сколько поступило?</b>\n\nВведи сумму в рублях: <code>28689.21</code>."
     if step=="confirm":
@@ -45,7 +46,7 @@ def keys(flow):
     if flow["step"]=="period":
         return buttons([[("① Первая","fin:period:1"),("② Вторая","fin:period:2")],[("❌ Отмена","fin:cancel")]])
     if flow["step"]=="confirm":
-        return buttons([[("✅ Сохранить","fin:save")],[("❌ Отмена","fin:cancel")]])
+        return buttons([[("✅ Сохранить","fin:save:"+confirmation.issue(flow))],[("❌ Отмена","fin:cancel")]])
     return cancel()
 
 async def send(update,context,flow):
@@ -74,7 +75,9 @@ async def callback(update,context,db):
         flow["step"]="paid_on"
     elif data[1]=="save":
         flow=context.user_data.get("finance_flow")
-        if not flow or flow.get("step")!="confirm":return True
+        if not flow or flow.get("step")!="confirm" or not confirmation.valid(flow,data[2] if len(data)==3 else None):
+            await context.bot.send_message(update.effective_chat.id,"Подтверждение устарело или относится к другому вводу. Открой действие заново.")
+            return True
         try:
             if flow["kind"]=="rate":
                 effective=schedule_rate(db,flow["amount"])
@@ -111,11 +114,13 @@ def check_date(value):
     value=value.strip()
     for fmt in ("%Y-%m-%d","%d.%m.%Y","%d.%m"):
         try:
-            d=datetime.strptime(value,fmt)
-            if fmt=="%d.%m":d=d.replace(year=datetime.now(TZ).year)
+            if fmt=="%d.%m":
+                d=datetime.strptime(f"{value}.{datetime.now(TZ).year}","%d.%m.%Y")
+            else:
+                d=datetime.strptime(value,fmt)
             return d.strftime("%Y-%m-%d")
         except ValueError:pass
-    raise ValueError("Дата должна быть 16.11 или 2024-08-16")
+    raise ValueError("Дата должна быть 16.11 или 2026-11-16")
 
 async def text(update,context):
     flow=context.user_data.get("finance_flow")
